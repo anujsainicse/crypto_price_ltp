@@ -2,16 +2,18 @@
 
 import asyncio
 import signal
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from core.logging import setup_logger
 from core.redis_client import RedisClient
+from core.control_interface import ControlInterface
 from config.settings import Settings
 
 # Import services
 from services.bybit_s import BybitSpotService
 from services.coindcx_f import CoinDCXFuturesLTPService, CoinDCXFundingRateService
 from services.delta_f import DeltaFuturesLTPService
+from services.delta_o import DeltaOptionsService
 
 
 class ServiceManager:
@@ -21,8 +23,11 @@ class ServiceManager:
         """Initialize Service Manager."""
         self.logger = setup_logger('ServiceManager', log_file='service_manager.log')
         self.services: List = []
+        self.service_registry: Dict[str, Dict] = {}  # Map service_id to service instance and task
+        self.control = ControlInterface()
         self.running = False
         self._shutdown_event = asyncio.Event()
+        self.control_check_interval = 2  # Check for control commands every 2 seconds
 
     def setup_signal_handlers(self):
         """Set up signal handlers for graceful shutdown."""
@@ -74,28 +79,171 @@ class ServiceManager:
             # Bybit Spot Service
             spot_config = services_config.get('spot', {})
             if spot_config.get('enabled', False):
-                self.services.append(BybitSpotService(spot_config))
+                service = BybitSpotService(spot_config)
+                self.services.append(service)
+                self.service_registry['bybit_spot'] = {
+                    'service': service,
+                    'task': None,
+                    'config': spot_config
+                }
                 self.logger.info("✓ Bybit Spot Service loaded")
 
         elif exchange == 'coindcx':
             # CoinDCX Futures LTP Service
             ltp_config = services_config.get('futures_ltp', {})
             if ltp_config.get('enabled', False):
-                self.services.append(CoinDCXFuturesLTPService(ltp_config))
+                service = CoinDCXFuturesLTPService(ltp_config)
+                self.services.append(service)
+                self.service_registry['coindcx_futures_ltp'] = {
+                    'service': service,
+                    'task': None,
+                    'config': ltp_config
+                }
                 self.logger.info("✓ CoinDCX Futures LTP Service loaded")
 
             # CoinDCX Funding Rate Service
             funding_config = services_config.get('funding_rate', {})
             if funding_config.get('enabled', False):
-                self.services.append(CoinDCXFundingRateService(funding_config))
+                service = CoinDCXFundingRateService(funding_config)
+                self.services.append(service)
+                self.service_registry['coindcx_funding_rate'] = {
+                    'service': service,
+                    'task': None,
+                    'config': funding_config
+                }
                 self.logger.info("✓ CoinDCX Funding Rate Service loaded")
 
         elif exchange == 'delta':
             # Delta Futures LTP Service
             ltp_config = services_config.get('futures_ltp', {})
             if ltp_config.get('enabled', False):
-                self.services.append(DeltaFuturesLTPService(ltp_config))
+                service = DeltaFuturesLTPService(ltp_config)
+                self.services.append(service)
+                self.service_registry['delta_futures_ltp'] = {
+                    'service': service,
+                    'task': None,
+                    'config': ltp_config
+                }
                 self.logger.info("✓ Delta Futures LTP Service loaded")
+
+            # Delta Options Service
+            options_config = services_config.get('options', {})
+            if options_config.get('enabled', False):
+                service = DeltaOptionsService(options_config)
+                self.services.append(service)
+                self.service_registry['delta_options'] = {
+                    'service': service,
+                    'task': None,
+                    'config': options_config
+                }
+                self.logger.info("✓ Delta Options Service loaded")
+
+    async def start_service(self, service_id: str) -> bool:
+        """Start a specific service.
+
+        Args:
+            service_id: Service identifier
+
+        Returns:
+            Success status
+        """
+        if service_id not in self.service_registry:
+            self.logger.error(f"Service '{service_id}' not found in registry")
+            return False
+
+        service_info = self.service_registry[service_id]
+
+        # Check if already running
+        if service_info['task'] and not service_info['task'].done():
+            self.logger.warning(f"Service '{service_id}' is already running")
+            return False
+
+        try:
+            self.logger.info(f"Starting service: {service_id}")
+            self.control.update_service_status(service_id, 'starting')
+
+            # Create and start task
+            service = service_info['service']
+            service_info['task'] = asyncio.create_task(service.run())
+
+            self.control.update_service_status(service_id, 'running')
+            self.logger.info(f"✓ Service '{service_id}' started successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error starting service '{service_id}': {e}")
+            self.control.update_service_status(service_id, 'error', {'error': str(e)})
+            return False
+
+    async def stop_service(self, service_id: str) -> bool:
+        """Stop a specific service.
+
+        Args:
+            service_id: Service identifier
+
+        Returns:
+            Success status
+        """
+        if service_id not in self.service_registry:
+            self.logger.error(f"Service '{service_id}' not found in registry")
+            return False
+
+        service_info = self.service_registry[service_id]
+
+        # Check if not running
+        if not service_info['task'] or service_info['task'].done():
+            self.logger.warning(f"Service '{service_id}' is not running")
+            self.control.update_service_status(service_id, 'stopped')
+            return False
+
+        try:
+            self.logger.info(f"Stopping service: {service_id}")
+            self.control.update_service_status(service_id, 'stopping')
+
+            # Stop service
+            service = service_info['service']
+            await service.stop()
+
+            # Wait for task to complete
+            try:
+                await asyncio.wait_for(service_info['task'], timeout=5.0)
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Service '{service_id}' did not stop gracefully, canceling...")
+                service_info['task'].cancel()
+
+            service_info['task'] = None
+            self.control.update_service_status(service_id, 'stopped')
+            self.logger.info(f"✓ Service '{service_id}' stopped successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error stopping service '{service_id}': {e}")
+            self.control.update_service_status(service_id, 'error', {'error': str(e)})
+            return False
+
+    async def check_control_commands(self):
+        """Check Redis for control commands and execute them."""
+        while self.running:
+            try:
+                for service_id in self.service_registry.keys():
+                    command = self.control.get_control_command(service_id)
+
+                    if command:
+                        action = command.get('action')
+                        self.logger.info(f"Received command '{action}' for service '{service_id}'")
+
+                        if action == 'start':
+                            await self.start_service(service_id)
+                        elif action == 'stop':
+                            await self.stop_service(service_id)
+
+                        # Clear the command after processing
+                        self.control.clear_control_command(service_id)
+
+            except Exception as e:
+                self.logger.error(f"Error checking control commands: {e}")
+
+            await asyncio.sleep(self.control_check_interval)
 
     async def start_all_services(self):
         """Start all services concurrently."""
@@ -107,22 +255,27 @@ class ServiceManager:
         self.logger.info(f"Starting {len(self.services)} services...")
         self.logger.info("=" * 80)
 
-        # Create tasks for all services
-        tasks = [asyncio.create_task(service.run()) for service in self.services]
+        # Start all services
+        for service_id in self.service_registry.keys():
+            await self.start_service(service_id)
+
+        # Start control command checker
+        control_task = asyncio.create_task(self.check_control_commands())
 
         # Wait for shutdown signal
         await self._shutdown_event.wait()
 
+        # Cancel control task
+        control_task.cancel()
+        try:
+            await control_task
+        except asyncio.CancelledError:
+            pass
+
         # Stop all services
         self.logger.info("Stopping all services...")
-        for service in self.services:
-            try:
-                await service.stop()
-            except Exception as e:
-                self.logger.error(f"Error stopping service: {e}")
-
-        # Wait for all tasks to complete
-        await asyncio.gather(*tasks, return_exceptions=True)
+        for service_id in self.service_registry.keys():
+            await self.stop_service(service_id)
 
     async def run(self):
         """Run the service manager."""
@@ -147,6 +300,13 @@ class ServiceManager:
             # Display service summary
             self._display_startup_summary()
 
+            # Initialize all service statuses to 'stopped'
+            for service_id in self.service_registry.keys():
+                self.control.update_service_status(service_id, 'stopped')
+
+            # Set running flag
+            self.running = True
+
             # Start all services
             await self.start_all_services()
 
@@ -155,6 +315,7 @@ class ServiceManager:
         except Exception as e:
             self.logger.error(f"Fatal error: {e}", exc_info=True)
         finally:
+            self.running = False
             self.logger.info("Service Manager shutdown complete")
 
     def _display_startup_summary(self):

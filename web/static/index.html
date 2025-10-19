@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Price LTP Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Crypto Price LTP Control Panel</h1>
+            <div class="header-stats">
+                <div class="stat-item">
+                    <span class="stat-label">Total Services:</span>
+                    <span id="total-services" class="stat-value">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Running:</span>
+                    <span id="running-services" class="stat-value">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Last Update:</span>
+                    <span id="last-update" class="stat-value">-</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div id="exchanges-container">
+                <!-- Exchange cards will be dynamically inserted here -->
+            </div>
+
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Loading services...</p>
+            </div>
+
+            <div id="error-message" class="error-message" style="display: none;">
+                <p id="error-text"></p>
+                <button onclick="location.reload()">Retry</button>
+            </div>
+        </main>
+
+        <footer>
+            <p>Crypto Price LTP System v1.0 | Auto-refresh: <span id="refresh-countdown">2</span>s</p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
