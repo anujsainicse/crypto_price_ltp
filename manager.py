@@ -277,6 +277,31 @@ class ServiceManager:
         for service_id in self.service_registry.keys():
             await self.stop_service(service_id)
 
+    async def wait_for_commands(self):
+        """Wait for control commands without auto-starting services."""
+        self.logger.info("=" * 80)
+        self.logger.info("Service Manager ready - all services in STOPPED state")
+        self.logger.info("Use the web dashboard to start/stop services")
+        self.logger.info("=" * 80)
+
+        # Start control command checker
+        control_task = asyncio.create_task(self.check_control_commands())
+
+        # Wait for shutdown signal
+        await self._shutdown_event.wait()
+
+        # Cancel control task
+        control_task.cancel()
+        try:
+            await control_task
+        except asyncio.CancelledError:
+            pass
+
+        # Stop all running services
+        self.logger.info("Stopping all services...")
+        for service_id in self.service_registry.keys():
+            await self.stop_service(service_id)
+
     async def run(self):
         """Run the service manager."""
         self.setup_signal_handlers()
@@ -307,8 +332,8 @@ class ServiceManager:
             # Set running flag
             self.running = True
 
-            # Start all services
-            await self.start_all_services()
+            # Wait for control commands (don't auto-start services)
+            await self.wait_for_commands()
 
         except KeyboardInterrupt:
             self.logger.info("Received keyboard interrupt")

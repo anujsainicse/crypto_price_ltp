@@ -52,3 +52,7 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Runtime PID files
+*.pid
+.*.pid

@@ -1,6 +1,9 @@
 """Web Dashboard for Crypto Price LTP System."""
 
 import uvicorn
+import signal
+import subprocess
+import time
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -184,19 +187,61 @@ async def health_check() -> Dict:
 
 # ==================== Main ====================
 
+def kill_port_process(port: int):
+    """Kill any process using the specified port.
+
+    Args:
+        port: Port number to free up
+    """
+    try:
+        # Use lsof to find process using the port
+        result = subprocess.run(
+            ['lsof', '-ti', f':{port}'],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            for pid in pids:
+                if pid:
+                    logger.info(f"Killing existing process on port {port} (PID: {pid})")
+                    try:
+                        subprocess.run(['kill', '-9', pid], check=False)
+                    except Exception as e:
+                        logger.warning(f"Failed to kill PID {pid}: {e}")
+
+            # Wait for port to be freed
+            time.sleep(1)
+            logger.info(f"Port {port} freed successfully")
+        else:
+            logger.info(f"Port {port} is available")
+
+    except FileNotFoundError:
+        # lsof not available, skip port checking
+        logger.warning("lsof command not found, skipping port conflict check")
+    except Exception as e:
+        logger.error(f"Error checking port {port}: {e}")
+
 def main():
     """Run the web dashboard."""
+    PORT = 8080
+
     logger.info("=" * 80)
     logger.info("Starting Crypto Price LTP Web Dashboard")
     logger.info("=" * 80)
-    logger.info("Dashboard URL: http://localhost:8080")
-    logger.info("API Docs: http://localhost:8080/docs")
+
+    # Check and free up port if needed
+    kill_port_process(PORT)
+
+    logger.info(f"Dashboard URL: http://localhost:{PORT}")
+    logger.info(f"API Docs: http://localhost:{PORT}/docs")
     logger.info("=" * 80)
 
     uvicorn.run(
         "web_dashboard:app",
         host="0.0.0.0",
-        port=8080,
+        port=PORT,
         log_level="info",
         reload=False
     )
