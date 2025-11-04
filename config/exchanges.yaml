@@ -6,6 +6,7 @@ bybit:
   services:
     spot:
       enabled: true
+      auto_start: true
       websocket_url: "wss://stream.bybit.com/v5/public/spot"
       symbols:
         - "BTCUSDT"
@@ -23,6 +24,7 @@ coindcx:
   services:
     futures_ltp:
       enabled: true
+      auto_start: true
       websocket_url: "wss://stream.coindcx.com"
       symbols:
         - "B-BTC_USDT"
@@ -36,6 +38,7 @@ coindcx:
 
     funding_rate:
       enabled: true
+      auto_start: true
       api_url: "https://public.coindcx.com/market_data/v3/current_prices/futures/rt"
       update_interval: 1800  # 30 minutes
       symbols:
@@ -53,6 +56,7 @@ delta:
   services:
     futures_ltp:
       enabled: true
+      auto_start: false
       websocket_url: "wss://socket.delta.exchange"
       symbols:
         - "BTCUSD"
@@ -66,6 +70,7 @@ delta:
 
     options:
       enabled: true
+      auto_start: false
       websocket_url: "wss://socket.delta.exchange"
       symbols:
         # Format: C-UNDERLYING-STRIKE-EXPIRY (Call) or P-UNDERLYING-STRIKE-EXPIRY (Put)

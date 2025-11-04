@@ -278,9 +278,24 @@ class ServiceManager:
             await self.stop_service(service_id)
 
     async def wait_for_commands(self):
-        """Wait for control commands without auto-starting services."""
+        """Wait for control commands and auto-start services with auto_start flag."""
+        # Auto-start services that have auto_start flag enabled
+        auto_start_services = []
+        for service_id, service_info in self.service_registry.items():
+            if service_info.get('config', {}).get('auto_start', False):
+                auto_start_services.append(service_id)
+
+        if auto_start_services:
+            self.logger.info("=" * 80)
+            self.logger.info(f"Auto-starting {len(auto_start_services)} services...")
+            self.logger.info("=" * 80)
+            for service_id in auto_start_services:
+                await self.start_service(service_id)
+                # Small delay between starting services
+                await asyncio.sleep(1)
+
         self.logger.info("=" * 80)
-        self.logger.info("Service Manager ready - all services in STOPPED state")
+        self.logger.info("Service Manager ready")
         self.logger.info("Use the web dashboard to start/stop services")
         self.logger.info("=" * 80)
 
