@@ -5,18 +5,41 @@ services:
     image: redis:7-alpine
     container_name: crypto_ltp_redis
     ports:
-      - "6379:6379"
+      # Bind to localhost only for security - bot on same VPS connects via localhost
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    # Add password authentication and persistence settings
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+      --save 900 1
+      --save 300 10
+      --save 60 10000
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - crypto_network
     restart: unless-stopped
+    # Resource limits for production stability
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Log rotation to prevent disk space issues
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   app:
     build:
@@ -24,19 +47,20 @@ services:
       dockerfile: Dockerfile
     container_name: crypto_ltp_app
     ports:
-      - "8080:8080"
+      # Bind to localhost only - access via SSH tunnel or from VPS locally
+      - "127.0.0.1:8080:8080"
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_TTL=${REDIS_TTL:-3600}
+      - REDIS_TTL=${REDIS_TTL:-7200}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_DIR=logs
-      - SERVICE_RESTART_DELAY=${SERVICE_RESTART_DELAY:-5}
-      - SERVICE_MAX_RETRIES=${SERVICE_MAX_RETRIES:-10}
-      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-30}
-      - STATUS_UPDATE_INTERVAL=${STATUS_UPDATE_INTERVAL:-30}
+      - SERVICE_RESTART_DELAY=${SERVICE_RESTART_DELAY:-10}
+      - SERVICE_MAX_RETRIES=${SERVICE_MAX_RETRIES:-5}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-60}
+      - STATUS_UPDATE_INTERVAL=${STATUS_UPDATE_INTERVAL:-60}
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config
@@ -46,6 +70,21 @@ services:
     networks:
       - crypto_network
     restart: unless-stopped
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # Log rotation
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
 volumes:
   redis_data:

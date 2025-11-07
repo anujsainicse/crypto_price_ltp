@@ -26,6 +26,10 @@ wheels/
 # Environment
 .env
 .venv
+.env.production         # Production config with sensitive data
+.env.production.local   # Local production config
+.env.*.local            # Any local environment overrides
+*.local                 # General local files
 
 # Logs
 logs/
