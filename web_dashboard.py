@@ -4,6 +4,7 @@ import uvicorn
 import signal
 import subprocess
 import time
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from core.control_interface import ControlInterface
 from core.logging import setup_logger
+from version import get_version, get_version_info
 
 
 app = FastAPI(
@@ -48,6 +50,41 @@ async def index():
 
 
 # ==================== API Endpoints ====================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for deployment verification."""
+    try:
+        # Check Redis connectivity
+        redis_status = control.is_redis_connected()
+
+        # Get service statuses
+        services = control.get_all_services_status()
+        active_services = sum(1 for s in services.values() if s.get('status') == 'running')
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "healthy",
+                "version": get_version(),
+                "version_info": get_version_info(),
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "redis_connected": redis_status,
+                "active_services": active_services,
+                "total_services": len(services)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "version": get_version(),
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "error": str(e)
+            }
+        )
 
 @app.get("/api/status")
 async def get_status() -> Dict:

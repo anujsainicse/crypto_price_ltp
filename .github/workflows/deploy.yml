@@ -1,0 +1,152 @@
+name: Deploy to VPS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to deploy (e.g., v1.0.0)'
+        required: false
+        default: ''
+
+env:
+  VPS_HOST: 139.84.173.21
+  VPS_USER: anuj
+  DEPLOY_PATH: /opt/crypto_price_ltp
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+          echo "Deploying version: ${{ steps.version.outputs.VERSION }}"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to VPS
+        run: |
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'DEPLOY_SCRIPT'
+            set -e
+            echo "==================== Deployment Started ===================="
+            cd ${{ env.DEPLOY_PATH }}
+
+            # Save current version for rollback
+            CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+            echo "Current version: $CURRENT_VERSION"
+
+            # Backup production configs
+            cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+            if [ -f docker-compose.prod.yml ]; then
+              cp docker-compose.prod.yml docker-compose.prod.yml.backup
+            fi
+
+            # Pull latest changes
+            echo "Fetching latest changes..."
+            git fetch --all --tags
+            git checkout ${{ steps.version.outputs.VERSION }}
+
+            # Restore production configs
+            if [ -f .env.production.local ]; then
+              echo "Using production environment configuration"
+              cp .env.production.local .env
+            fi
+
+            if [ -f docker-compose.prod.yml ]; then
+              echo "Using production docker-compose configuration"
+              cp docker-compose.prod.yml docker-compose.yml
+            fi
+
+            # Stop and rebuild containers
+            echo "Rebuilding containers..."
+            docker-compose down
+            docker-compose build --no-cache
+            docker-compose up -d
+
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 10
+
+            # Health check
+            echo "Performing health checks..."
+            docker-compose ps
+
+            # Check if container is running
+            if docker-compose ps | grep -q "Up"; then
+              echo "✅ Container is running"
+            else
+              echo "❌ Container failed to start"
+              exit 1
+            fi
+
+            # Check Redis connectivity
+            if docker logs crypto-price-ltp 2>&1 | tail -20 | grep -q "Redis is ready"; then
+              echo "✅ Redis connection established"
+            else
+              echo "⚠️ Warning: Redis connection not confirmed in recent logs"
+            fi
+
+            # Check service status
+            if docker logs crypto-price-ltp 2>&1 | tail -30 | grep -q "Service Manager ready"; then
+              echo "✅ Service Manager is ready"
+            else
+              echo "⚠️ Warning: Service Manager status not confirmed"
+            fi
+
+            # Display recent logs
+            echo ""
+            echo "==================== Recent Logs ===================="
+            docker logs crypto-price-ltp --tail=20
+
+            echo ""
+            echo "==================== Deployment Complete ===================="
+            echo "Version ${{ steps.version.outputs.VERSION }} deployed successfully!"
+            echo "Dashboard: http://${{ env.VPS_HOST }}:8080"
+          DEPLOY_SCRIPT
+
+      - name: Verify deployment
+        run: |
+          # Check if web dashboard is accessible
+          max_retries=5
+          retry_count=0
+
+          while [ $retry_count -lt $max_retries ]; do
+            if curl -f -s -o /dev/null -w "%{http_code}" http://${{ env.VPS_HOST }}:8080/health | grep -q "200"; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+
+            retry_count=$((retry_count + 1))
+            echo "Retry $retry_count/$max_retries: Health check failed, waiting..."
+            sleep 5
+          done
+
+          echo "⚠️ Health check failed after $max_retries retries (non-fatal)"
+
+      - name: Send deployment notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Deployment successful for version ${{ steps.version.outputs.VERSION }}"
+          else
+            echo "❌ Deployment failed for version ${{ steps.version.outputs.VERSION }}"
+          fi

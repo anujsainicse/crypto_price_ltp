@@ -31,6 +31,10 @@ wheels/
 .env.*.local            # Any local environment overrides
 *.local                 # General local files
 
+# Production configs
+docker-compose.prod.yml # Production docker-compose
+.env.backup.*           # Environment backup files
+
 # Logs
 logs/
 *.log
