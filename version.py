@@ -2,7 +2,7 @@
 Version management for Crypto Price LTP system
 """
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 BUILD_DATE = "2025-11-24"
 
 def get_version():
