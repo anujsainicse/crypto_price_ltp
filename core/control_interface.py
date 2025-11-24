@@ -174,6 +174,14 @@ class ControlInterface:
 
     # ==================== Helper Methods ====================
 
+    def is_redis_connected(self) -> bool:
+        """Check if Redis connection is alive.
+
+        Returns:
+            True if Redis is connected, False otherwise
+        """
+        return self.redis_client.ping()
+
     def get_exchange_data_count(self, redis_prefix: str) -> int:
         """Count data points for an exchange.
 
