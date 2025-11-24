@@ -17,7 +17,7 @@ trap shutdown SIGTERM SIGINT
 
 # Wait for Redis to be ready
 echo "Waiting for Redis to be ready..."
-until python -c "import redis; r = redis.Redis(host='${REDIS_HOST:-redis}', port=${REDIS_PORT:-6379}); r.ping()" 2>/dev/null; do
+until python -c "import redis; r = redis.Redis(host='${REDIS_HOST:-redis}', port=${REDIS_PORT:-6379}, password='${REDIS_PASSWORD}', decode_responses=True); r.ping()" 2>/dev/null; do
     echo "Redis is unavailable - sleeping"
     sleep 2
 done
