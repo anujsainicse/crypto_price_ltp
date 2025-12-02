@@ -3,7 +3,8 @@
 import asyncio
 import json
 import websockets
-from typing import Optional
+import aiohttp
+from typing import Optional, List, Dict
 from datetime import datetime
 
 from core.base_service import BaseService
@@ -12,6 +13,9 @@ from core.base_service import BaseService
 class DeltaOptionsService(BaseService):
     """Service for streaming Delta Exchange options data via WebSocket."""
 
+    # REST API endpoint for fetching tickers
+    REST_API_URL = "https://api.delta.exchange/v2/tickers"
+
     def __init__(self, config: dict):
         """Initialize Delta Options Service.
 
@@ -19,12 +23,143 @@ class DeltaOptionsService(BaseService):
             config: Service configuration dictionary
         """
         super().__init__("Delta-Options", config)
+        self.config = config  # Store full config for later use
         self.ws_url = config.get('websocket_url', 'wss://socket.delta.exchange')
-        self.symbols = config.get('symbols', [])
+        # Static symbols from config (fallback)
+        self.static_symbols = config.get('symbols', [])
+        # Underlying assets to track
+        self.underlying_assets = config.get('underlying_assets', ['BTC', 'ETH'])
+        # Whether to subscribe to ALL options (no filtering)
+        self.subscribe_all = config.get('subscribe_all', True)
+        # Max symbols per underlying asset (only used if subscribe_all is False)
+        self.max_symbols_per_asset = config.get('max_symbols_per_asset', 10)
+        # Whether to use dynamic symbol discovery
+        self.use_dynamic_discovery = config.get('use_dynamic_discovery', True)
+        # Batch subscription settings
+        self.subscription_batch_size = config.get('subscription_batch_size', 20)
+        self.subscription_batch_delay = config.get('subscription_batch_delay', 0.5)
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'delta_options')
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        # Active symbols (will be populated dynamically or from config)
+        self.active_symbols: List[str] = []
+        # Symbol refresh interval (1 hour)
+        self.symbol_refresh_interval = config.get('symbol_refresh_interval', 3600)
+
+    async def _fetch_valid_options_symbols(self) -> List[Dict]:
+        """Fetch currently active options symbols from Delta Exchange REST API.
+
+        Returns:
+            List of option ticker dictionaries with symbol info
+        """
+        try:
+            self.logger.info("Fetching valid options symbols from Delta Exchange API...")
+            params = {"contract_types": "call_options,put_options"}
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(self.REST_API_URL, params=params, timeout=30) as response:
+                    if response.status != 200:
+                        self.logger.error(f"REST API returned status {response.status}")
+                        return []
+
+                    data = await response.json()
+
+                    if not data.get('success', False):
+                        self.logger.error(f"REST API returned error: {data.get('error', 'Unknown error')}")
+                        return []
+
+                    result = data.get('result', [])
+                    self.logger.info(f"Fetched {len(result)} options contracts from Delta Exchange")
+                    return result
+
+        except asyncio.TimeoutError:
+            self.logger.error("Timeout fetching options symbols from REST API")
+            return []
+        except aiohttp.ClientError as e:
+            self.logger.error(f"HTTP error fetching options symbols: {e}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching options symbols: {e}")
+            return []
+
+    def _filter_symbols(self, all_tickers: List[Dict]) -> List[str]:
+        """Filter and select options symbols to track.
+
+        Args:
+            all_tickers: List of ticker data from REST API
+
+        Returns:
+            List of symbol strings to subscribe to
+        """
+        selected = []
+
+        for underlying in self.underlying_assets:
+            # Filter options for this underlying
+            # The API returns 'underlying_asset_symbol' as a direct field
+            underlying_options = [
+                t for t in all_tickers
+                if t.get('underlying_asset_symbol', '') == underlying
+            ]
+
+            if not underlying_options:
+                self.logger.warning(f"No options found for underlying: {underlying}")
+                continue
+
+            # Count calls and puts
+            calls = [t for t in underlying_options if t.get('symbol', '').startswith('C-')]
+            puts = [t for t in underlying_options if t.get('symbol', '').startswith('P-')]
+
+            if self.subscribe_all:
+                # Subscribe to ALL options for this underlying
+                selected_calls = [t['symbol'] for t in calls]
+                selected_puts = [t['symbol'] for t in puts]
+            else:
+                # Sort by open interest (most liquid first)
+                calls.sort(key=lambda x: float(x.get('oi', 0) or 0), reverse=True)
+                puts.sort(key=lambda x: float(x.get('oi', 0) or 0), reverse=True)
+
+                # Take top N symbols (balanced calls and puts)
+                max_each = self.max_symbols_per_asset // 2
+                selected_calls = [t['symbol'] for t in calls[:max_each]]
+                selected_puts = [t['symbol'] for t in puts[:max_each]]
+
+            selected.extend(selected_calls)
+            selected.extend(selected_puts)
+
+            self.logger.info(
+                f"Selected {len(selected_calls)} calls and {len(selected_puts)} puts for {underlying}"
+            )
+
+        self.logger.info(f"Total options to subscribe: {len(selected)}")
+        return selected
+
+    async def _discover_symbols(self) -> List[str]:
+        """Discover valid options symbols, either dynamically or from static config.
+
+        Returns:
+            List of symbol strings to subscribe to
+        """
+        if self.use_dynamic_discovery:
+            self.logger.info("Using dynamic symbol discovery...")
+            all_tickers = await self._fetch_valid_options_symbols()
+
+            if all_tickers:
+                symbols = self._filter_symbols(all_tickers)
+                if symbols:
+                    return symbols
+                else:
+                    self.logger.warning("No symbols matched filter criteria")
+
+            self.logger.warning("Dynamic discovery failed, falling back to static symbols")
+
+        # Fallback to static symbols from config
+        if self.static_symbols:
+            self.logger.info(f"Using {len(self.static_symbols)} static symbols from config")
+            return self.static_symbols
+
+        self.logger.error("No symbols available (dynamic discovery failed and no static symbols)")
+        return []
 
     async def start(self):
         """Start the Delta options streaming service."""
@@ -32,13 +167,16 @@ class DeltaOptionsService(BaseService):
             self.logger.info("Service is disabled in configuration")
             return
 
-        if not self.symbols:
-            self.logger.error("No symbols configured")
+        # Discover valid symbols
+        self.active_symbols = await self._discover_symbols()
+
+        if not self.active_symbols:
+            self.logger.error("No valid options symbols to subscribe to")
             return
 
         self.running = True
         self.logger.info(f"Starting WebSocket connection to {self.ws_url}")
-        self.logger.info(f"Monitoring options: {', '.join(self.symbols)}")
+        self.logger.info(f"Monitoring {len(self.active_symbols)} options: {', '.join(self.active_symbols[:5])}...")
 
         reconnect_attempts = 0
 
@@ -72,38 +210,143 @@ class DeltaOptionsService(BaseService):
             # Subscribe to symbols
             await self._subscribe_to_symbols()
 
-            # Listen for messages
-            async for message in websocket:
+            # Start symbol refresh task
+            refresh_task = asyncio.create_task(self._periodic_symbol_refresh())
+
+            try:
+                # Listen for messages
+                async for message in websocket:
+                    if not self.running:
+                        break
+
+                    try:
+                        await self._handle_message(message)
+                    except Exception as e:
+                        self.logger.error(f"Error handling message: {e}")
+            finally:
+                refresh_task.cancel()
+                try:
+                    await refresh_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _periodic_symbol_refresh(self):
+        """Periodically refresh symbols to handle expiring options."""
+        while self.running:
+            try:
+                await asyncio.sleep(self.symbol_refresh_interval)
+
                 if not self.running:
                     break
 
-                try:
-                    await self._handle_message(message)
-                except Exception as e:
-                    self.logger.error(f"Error handling message: {e}")
+                self.logger.info("Refreshing options symbols...")
 
-    async def _subscribe_to_symbols(self):
-        """Subscribe to options ticker/trade updates for configured symbols."""
+                # Discover new symbols
+                new_symbols = await self._discover_symbols()
+
+                if not new_symbols:
+                    self.logger.warning("Symbol refresh returned empty, keeping existing symbols")
+                    continue
+
+                # Find symbols to unsubscribe and subscribe
+                old_set = set(self.active_symbols)
+                new_set = set(new_symbols)
+
+                to_unsubscribe = old_set - new_set
+                to_subscribe = new_set - old_set
+
+                if to_unsubscribe:
+                    self.logger.info(f"Unsubscribing from {len(to_unsubscribe)} expired symbols")
+                    await self._unsubscribe_symbols(list(to_unsubscribe))
+
+                if to_subscribe:
+                    self.logger.info(f"Subscribing to {len(to_subscribe)} new symbols")
+                    for symbol in to_subscribe:
+                        await self._subscribe_single_symbol(symbol)
+
+                self.active_symbols = new_symbols
+                self.logger.info(f"Symbol refresh complete. Now tracking {len(self.active_symbols)} symbols")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error during symbol refresh: {e}")
+
+    async def _subscribe_single_symbol(self, symbol: str):
+        """Subscribe to a single symbol."""
         if not self.websocket:
             return
 
-        for symbol in self.symbols:
-            # Delta Exchange subscription format for options
-            # Channel format: v2/ticker for options symbols
+        subscribe_msg = {
+            "type": "subscribe",
+            "payload": {
+                "channels": [
+                    {
+                        "name": "v2/ticker",
+                        "symbols": [symbol]
+                    }
+                ]
+            }
+        }
+        await self.websocket.send(json.dumps(subscribe_msg))
+        self.logger.info(f"Subscribed to {symbol}")
+
+    async def _unsubscribe_symbols(self, symbols: List[str]):
+        """Unsubscribe from a list of symbols."""
+        if not self.websocket or not symbols:
+            return
+
+        unsubscribe_msg = {
+            "type": "unsubscribe",
+            "payload": {
+                "channels": [
+                    {
+                        "name": "v2/ticker",
+                        "symbols": symbols
+                    }
+                ]
+            }
+        }
+        await self.websocket.send(json.dumps(unsubscribe_msg))
+        self.logger.info(f"Unsubscribed from {len(symbols)} symbols")
+
+    async def _subscribe_to_symbols(self):
+        """Subscribe to options ticker/trade updates for discovered symbols in batches."""
+        if not self.websocket:
+            return
+
+        total_symbols = len(self.active_symbols)
+        batch_size = self.subscription_batch_size
+        batch_delay = self.subscription_batch_delay
+
+        self.logger.info(f"Subscribing to {total_symbols} options in batches of {batch_size}...")
+
+        for i in range(0, total_symbols, batch_size):
+            batch = self.active_symbols[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            total_batches = (total_symbols + batch_size - 1) // batch_size
+
+            # Subscribe to entire batch in one message
             subscribe_msg = {
                 "type": "subscribe",
                 "payload": {
                     "channels": [
                         {
                             "name": "v2/ticker",
-                            "symbols": [symbol]
+                            "symbols": batch
                         }
                     ]
                 }
             }
             await self.websocket.send(json.dumps(subscribe_msg))
-            self.logger.info(f"Subscribed to {symbol}")
-            await asyncio.sleep(0.1)  # Small delay between subscriptions
+
+            self.logger.info(f"Subscribed batch {batch_num}/{total_batches}: {len(batch)} symbols")
+
+            # Add delay between batches (but not after the last one)
+            if i + batch_size < total_symbols:
+                await asyncio.sleep(batch_delay)
+
+        self.logger.info(f"Subscription complete: {total_symbols} total options symbols")
 
     async def _handle_message(self, message: str):
         """Handle incoming WebSocket message.
@@ -113,27 +356,35 @@ class DeltaOptionsService(BaseService):
         """
         try:
             data = json.loads(message)
-
-            # Log ALL messages to see what we're receiving
-            self.logger.info(f"Received message type: {data.get('type')}")
-            self.logger.debug(f"Full message: {data}")
+            msg_type = data.get('type', 'unknown')
 
             # Handle subscription confirmation
-            if data.get('type') == 'subscriptions':
-                self.logger.info(f"Subscription confirmed: {data}")
+            if msg_type == 'subscriptions':
+                channels = data.get('channels', [])
+                self.logger.info(f"Subscription confirmed for {len(channels)} channels")
+                for channel in channels:
+                    symbols = channel.get('symbols', [])
+                    self.logger.info(f"  Channel '{channel.get('name')}': {len(symbols)} symbols")
+                return
+
+            # Handle subscription errors
+            if msg_type == 'error':
+                error_msg = data.get('message', 'Unknown error')
+                error_code = data.get('code', 'N/A')
+                self.logger.error(f"WebSocket error from Delta: [{error_code}] {error_msg}")
                 return
 
             # Handle ticker updates
-            if data.get('type') == 'v2/ticker':
+            if msg_type == 'v2/ticker':
                 await self._process_ticker_update(data)
             else:
-                # Log unhandled message types
-                self.logger.warning(f"Unhandled message type: {data.get('type')}")
+                # Log unhandled message types (but not too verbosely)
+                self.logger.debug(f"Received message type: {msg_type}")
 
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse message: {e}")
         except Exception as e:
-            self.logger.error(f"Error processing message: {e}")
+            self.logger.error(f"Error processing message: {e}", exc_info=True)
 
     async def _process_ticker_update(self, data: dict):
         """Process options ticker update and store in Redis.
@@ -195,10 +446,13 @@ class DeltaOptionsService(BaseService):
             )
 
             if success:
-                self.logger.debug(
-                    f"Updated {symbol}: ${price} "
-                    f"(Type: {option_info.get('type')}, Strike: {option_info.get('strike')})"
+                self.logger.info(
+                    f"[REDIS] Stored {symbol}: ${price} "
+                    f"(Type: {option_info.get('type')}, Strike: {option_info.get('strike')}, "
+                    f"IV: {additional_data.get('implied_volatility', 'N/A')})"
                 )
+            else:
+                self.logger.warning(f"Failed to store {symbol} in Redis")
 
         except Exception as e:
             self.logger.error(f"Error processing ticker update: {e}")

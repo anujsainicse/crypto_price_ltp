@@ -72,21 +72,17 @@ delta:
       enabled: true
       auto_start: false
       websocket_url: "wss://socket.delta.exchange"
-      symbols:
-        # Format: C-UNDERLYING-STRIKE-EXPIRY (Call) or P-UNDERLYING-STRIKE-EXPIRY (Put)
-        # EXPIRY FORMAT: DDMMYY (e.g., 211025 = 21-Oct-2025)
-        # BTC options (expiring Oct 21, 2025) - Active contracts
-        - "C-BTC-108200-211025"  # BTC Call, Strike 108200, Expiry 21-Oct-25
-        - "P-BTC-108200-211025"  # BTC Put, Strike 108200, Expiry 21-Oct-25
-        - "C-BTC-110000-211025"  # BTC Call, Strike 110000, Expiry 21-Oct-25
-        - "P-BTC-110000-211025"  # BTC Put, Strike 110000, Expiry 21-Oct-25
-        - "C-BTC-105800-211025"  # BTC Call, Strike 105800, Expiry 21-Oct-25
-        - "P-BTC-105800-211025"  # BTC Put, Strike 105800, Expiry 21-Oct-25
-        # ETH options (expiring Oct 20, 2025) - Active contracts
-        - "C-ETH-4000-201025"    # ETH Call, Strike 4000, Expiry 20-Oct-25
-        - "P-ETH-4000-201025"    # ETH Put, Strike 4000, Expiry 20-Oct-25
-        - "C-ETH-3980-201025"    # ETH Call, Strike 3980, Expiry 20-Oct-25
-        - "P-ETH-3980-201025"    # ETH Put, Strike 3980, Expiry 20-Oct-25
+      # Dynamic symbol discovery - fetches valid symbols from REST API
+      use_dynamic_discovery: true
+      underlying_assets:
+        - "BTC"
+        - "ETH"
+      # Subscribe to ALL available options (no filtering)
+      subscribe_all: true
+      # Batch subscription settings (for handling many symbols efficiently)
+      subscription_batch_size: 20  # Subscribe N symbols per batch message
+      subscription_batch_delay: 0.5  # Delay between batches (seconds)
+      symbol_refresh_interval: 3600  # Refresh symbols every hour (options expire)
       reconnect_interval: 5
       max_reconnect_attempts: 10
       redis_prefix: "delta_options"
