@@ -56,7 +56,7 @@ delta:
   services:
     futures_ltp:
       enabled: true
-      auto_start: false
+      auto_start: true
       websocket_url: "wss://socket.delta.exchange"
       symbols:
         - "BTCUSD"
@@ -70,7 +70,7 @@ delta:
 
     options:
       enabled: true
-      auto_start: false
+      auto_start: true
       websocket_url: "wss://socket.delta.exchange"
       # Dynamic symbol discovery - fetches valid symbols from REST API
       use_dynamic_discovery: true
@@ -86,3 +86,35 @@ delta:
       reconnect_interval: 5
       max_reconnect_attempts: 10
       redis_prefix: "delta_options"
+
+hyperliquid:
+  name: "HyperLiquid"
+  enabled: true
+  services:
+    spot:
+      enabled: true
+      auto_start: true
+      websocket_url: "wss://api.hyperliquid.xyz/ws"
+      symbols:
+        - "BTC"
+        - "ETH"
+        - "SOL"
+        - "BNB"
+        - "DOGE"
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+      redis_prefix: "hyperliquid_spot"
+
+    perpetual:
+      enabled: true
+      auto_start: true
+      websocket_url: "wss://api.hyperliquid.xyz/ws"
+      symbols:
+        - "BTC"
+        - "ETH"
+        - "SOL"
+        - "BNB"
+        - "DOGE"
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+      redis_prefix: "hyperliquid_perp"

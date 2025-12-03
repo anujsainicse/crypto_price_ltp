@@ -14,6 +14,8 @@ from services.bybit_s import BybitSpotService
 from services.coindcx_f import CoinDCXFuturesLTPService, CoinDCXFundingRateService
 from services.delta_f import DeltaFuturesLTPService
 from services.delta_o import DeltaOptionsService
+from services.hyperliquid_s import HyperLiquidSpotService
+from services.hyperliquid_p import HyperLiquidPerpetualService
 
 
 class ServiceManager:
@@ -137,6 +139,31 @@ class ServiceManager:
                     'config': options_config
                 }
                 self.logger.info("✓ Delta Options Service loaded")
+
+        elif exchange == 'hyperliquid':
+            # HyperLiquid Spot Service
+            spot_config = services_config.get('spot', {})
+            if spot_config.get('enabled', False):
+                service = HyperLiquidSpotService(spot_config)
+                self.services.append(service)
+                self.service_registry['hyperliquid_spot'] = {
+                    'service': service,
+                    'task': None,
+                    'config': spot_config
+                }
+                self.logger.info("✓ HyperLiquid Spot Service loaded")
+
+            # HyperLiquid Perpetual Service
+            perp_config = services_config.get('perpetual', {})
+            if perp_config.get('enabled', False):
+                service = HyperLiquidPerpetualService(perp_config)
+                self.services.append(service)
+                self.service_registry['hyperliquid_perpetual'] = {
+                    'service': service,
+                    'task': None,
+                    'config': perp_config
+                }
+                self.logger.info("✓ HyperLiquid Perpetual Service loaded")
 
     async def start_service(self, service_id: str) -> bool:
         """Start a specific service.
