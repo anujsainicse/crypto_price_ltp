@@ -51,13 +51,13 @@ coindcx:
       api_timeout: 10
 
 delta:
-  name: "Delta Exchange"
+  name: "Delta Exchange India"
   enabled: true
   services:
     futures_ltp:
       enabled: true
       auto_start: true
-      websocket_url: "wss://socket.delta.exchange"
+      websocket_url: "wss://socket.india.delta.exchange"
       symbols:
         - "BTCUSD"
         - "ETHUSD"
@@ -71,7 +71,7 @@ delta:
     options:
       enabled: true
       auto_start: true
-      websocket_url: "wss://socket.delta.exchange"
+      websocket_url: "wss://socket.india.delta.exchange"
       # Dynamic symbol discovery - fetches valid symbols from REST API
       use_dynamic_discovery: true
       underlying_assets:
@@ -80,8 +80,8 @@ delta:
       # Subscribe to ALL available options (no filtering)
       subscribe_all: true
       # Batch subscription settings (for handling many symbols efficiently)
-      subscription_batch_size: 20  # Subscribe N symbols per batch message
-      subscription_batch_delay: 0.5  # Delay between batches (seconds)
+      subscription_batch_size: 50  # Subscribe N symbols per batch message
+      subscription_batch_delay: 0.2  # Delay between batches (seconds)
       symbol_refresh_interval: 3600  # Refresh symbols every hour (options expire)
       reconnect_interval: 5
       max_reconnect_attempts: 10

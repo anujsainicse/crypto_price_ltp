@@ -13,8 +13,8 @@ from core.base_service import BaseService
 class DeltaOptionsService(BaseService):
     """Service for streaming Delta Exchange options data via WebSocket."""
 
-    # REST API endpoint for fetching tickers
-    REST_API_URL = "https://api.delta.exchange/v2/tickers"
+    # REST API endpoint for fetching tickers (using India API for more options)
+    REST_API_URL = "https://api.india.delta.exchange/v2/tickers"
 
     def __init__(self, config: dict):
         """Initialize Delta Options Service.
@@ -201,8 +201,8 @@ class DeltaOptionsService(BaseService):
         """Connect to WebSocket and stream options data."""
         async with websockets.connect(
             self.ws_url,
-            ping_interval=20,
-            ping_timeout=10
+            ping_interval=30,
+            ping_timeout=60  # Increased to allow time for bulk subscriptions
         ) as websocket:
             self.websocket = websocket
             self.logger.info("WebSocket connected successfully")
