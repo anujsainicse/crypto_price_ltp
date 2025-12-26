@@ -16,6 +16,7 @@ from services.delta_f import DeltaFuturesLTPService
 from services.delta_o import DeltaOptionsService
 from services.hyperliquid_s import HyperLiquidSpotService
 from services.hyperliquid_p import HyperLiquidPerpetualService
+from services.bybit_spot_testnet import BybitSpotTestnetService
 
 
 class ServiceManager:
@@ -30,6 +31,12 @@ class ServiceManager:
         self.running = False
         self._shutdown_event = asyncio.Event()
         self.control_check_interval = 2  # Check for control commands every 2 seconds
+
+        # Health monitoring settings
+        self.health_check_interval = 30  # Check service health every 30 seconds
+        self.service_restart_cooldown = 60  # Wait 60 seconds before restarting crashed service
+        self.service_restart_counts: Dict[str, Dict] = {}  # Track restart attempts per service
+        self.max_restart_attempts = 5  # Maximum restarts per hour per service
 
     def setup_signal_handlers(self):
         """Set up signal handlers for graceful shutdown."""
@@ -165,6 +172,19 @@ class ServiceManager:
                 }
                 self.logger.info("✓ HyperLiquid Perpetual Service loaded")
 
+        elif exchange == 'bybit_spot_testnet':
+            # Bybit Spot TestNet Service
+            spot_config = services_config.get('spot', {})
+            if spot_config.get('enabled', False):
+                service = BybitSpotTestnetService(spot_config)
+                self.services.append(service)
+                self.service_registry['bybit_spot_testnet_spot'] = {
+                    'service': service,
+                    'task': None,
+                    'config': spot_config
+                }
+                self.logger.info("✓ Bybit Spot TestNet Service loaded")
+
     async def start_service(self, service_id: str) -> bool:
         """Start a specific service.
 
@@ -272,6 +292,92 @@ class ServiceManager:
 
             await asyncio.sleep(self.control_check_interval)
 
+    async def monitor_service_health(self):
+        """Monitor service health and restart crashed services."""
+        while self.running:
+            try:
+                current_time = asyncio.get_event_loop().time()
+
+                for service_id, service_info in self.service_registry.items():
+                    task = service_info.get('task')
+
+                    # Check if service task exists and has completed (crashed)
+                    if task and task.done():
+                        # Get current status from Redis
+                        status_data = self.control.get_service_status(service_id)
+                        status = status_data.get('status') if status_data else None
+
+                        # Only restart if it wasn't manually stopped
+                        if status and status not in ['stopped', 'stopping', 'error']:
+                            await self._handle_crashed_service(service_id)
+
+            except Exception as e:
+                self.logger.error(f"Error in health monitor: {e}")
+
+            await asyncio.sleep(self.health_check_interval)
+
+    async def _handle_crashed_service(self, service_id: str):
+        """Handle a crashed service by restarting it after cooldown.
+
+        Args:
+            service_id: Service identifier
+        """
+        current_time = asyncio.get_event_loop().time()
+
+        # Initialize restart tracking for this service
+        if service_id not in self.service_restart_counts:
+            self.service_restart_counts[service_id] = {
+                'count': 0,
+                'first_restart': current_time
+            }
+
+        restart_info = self.service_restart_counts[service_id]
+
+        # Reset counter if it's been more than an hour since first restart
+        if current_time - restart_info['first_restart'] > 3600:
+            restart_info['count'] = 0
+            restart_info['first_restart'] = current_time
+
+        # Check if we've exceeded max restart attempts
+        if restart_info['count'] >= self.max_restart_attempts:
+            self.logger.error(
+                f"Service '{service_id}' exceeded max restart attempts "
+                f"({self.max_restart_attempts}/hour). Manual intervention required."
+            )
+            self.control.update_service_status(service_id, 'error',
+                {'error': 'Max restart attempts exceeded'})
+            return
+
+        self.logger.warning(
+            f"Service '{service_id}' crashed. Restarting in {self.service_restart_cooldown}s "
+            f"(attempt {restart_info['count'] + 1}/{self.max_restart_attempts})"
+        )
+
+        self.control.update_service_status(service_id, 'recovering')
+
+        # Wait cooldown period before restart
+        await asyncio.sleep(self.service_restart_cooldown)
+
+        # Check if we should still restart (might have been manually stopped during cooldown)
+        status_data = self.control.get_service_status(service_id)
+        status = status_data.get('status') if status_data else None
+        if status in ['stopped', 'stopping']:
+            self.logger.info(f"Service '{service_id}' was stopped during cooldown, skipping restart")
+            return
+
+        # Recreate service instance with fresh state
+        config = self.service_registry[service_id]['config']
+        service_class = type(self.service_registry[service_id]['service'])
+        new_service = service_class(config)
+        self.service_registry[service_id]['service'] = new_service
+        self.services = [s for s in self.services if s != self.service_registry[service_id]['service']]
+        self.services.append(new_service)
+
+        # Increment restart counter and restart
+        restart_info['count'] += 1
+        self.logger.info(f"Restarting service '{service_id}'...")
+        await self.start_service(service_id)
+
     async def start_all_services(self):
         """Start all services concurrently."""
         if not self.services:
@@ -329,13 +435,22 @@ class ServiceManager:
         # Start control command checker
         control_task = asyncio.create_task(self.check_control_commands())
 
+        # Start health monitoring task
+        health_task = asyncio.create_task(self.monitor_service_health())
+        self.logger.info("Health monitoring started (checking every 30s)")
+
         # Wait for shutdown signal
         await self._shutdown_event.wait()
 
-        # Cancel control task
+        # Cancel background tasks
         control_task.cancel()
+        health_task.cancel()
         try:
             await control_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await health_task
         except asyncio.CancelledError:
             pass
 

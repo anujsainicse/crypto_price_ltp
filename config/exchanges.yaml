@@ -14,6 +14,8 @@ bybit:
         - "SOLUSDT"
         - "BNBUSDT"
         - "DOGEUSDT"
+        - "MNTUSDT"
+        - "HYPEUSDT"
       reconnect_interval: 5
       max_reconnect_attempts: 10
       redis_prefix: "bybit_spot"
@@ -118,3 +120,23 @@ hyperliquid:
       reconnect_interval: 5
       max_reconnect_attempts: 10
       redis_prefix: "hyperliquid_perp"
+
+bybit_spot_testnet:
+  name: "Bybit Spot TestNet"
+  enabled: true
+  services:
+    spot:
+      enabled: true
+      auto_start: true
+      websocket_url: "wss://stream-testnet.bybit.com/v5/public/spot"
+      symbols:
+        - "BTCUSDT"
+        - "ETHUSDT"
+        - "SOLUSDT"
+        - "BNBUSDT"
+        - "DOGEUSDT"
+        - "MNTUSDT"
+        - "HYPEUSDT"
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+      redis_prefix: "bybit_spot_testnet"

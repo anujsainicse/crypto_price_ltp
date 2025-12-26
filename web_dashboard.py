@@ -127,6 +127,24 @@ async def get_status() -> Dict:
                 'exchange': 'delta',
                 'type': 'options',
                 'redis_prefix': 'delta_options'
+            },
+            'hyperliquid_spot': {
+                'name': 'HyperLiquid Spot',
+                'exchange': 'hyperliquid',
+                'type': 'spot',
+                'redis_prefix': 'hyperliquid_spot'
+            },
+            'hyperliquid_perpetual': {
+                'name': 'HyperLiquid Perpetual',
+                'exchange': 'hyperliquid',
+                'type': 'perpetual',
+                'redis_prefix': 'hyperliquid_perp'
+            },
+            'bybit_spot_testnet_spot': {
+                'name': 'Bybit Spot TestNet',
+                'exchange': 'bybit_spot_testnet',
+                'type': 'spot',
+                'redis_prefix': 'bybit_spot_testnet'
             }
         }
 
