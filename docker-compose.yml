@@ -5,19 +5,15 @@ services:
     image: redis:7-alpine
     container_name: crypto_ltp_redis
     ports:
-      # Bind to localhost only for security - bot on same VPS connects via localhost
+      # Expose Redis on port 6379 for all services to use
       - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     # Add persistence settings (no password for local development)
     command: >
-      redis-server
-      --appendonly yes
-      --save 900 1
-      --save 300 10
-      --save 60 10000
+      redis-server --appendonly yes --save 900 1 --save 300 10 --save 60 10000
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
