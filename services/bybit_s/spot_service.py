@@ -93,6 +93,10 @@ class BybitSpotService(BaseService):
 
     async def _connect_and_stream(self):
         """Connect to WebSocket and stream prices."""
+        # Clear stale state on reconnection to prevent memory leaks and stale data
+        self._orderbooks.clear()
+        self._trades.clear()
+
         async with websockets.connect(
             self.ws_url,
             ping_interval=20,
@@ -224,10 +228,10 @@ class BybitSpotService(BaseService):
             base_coin = self._extract_base_coin(symbol)
 
             if update_type == 'snapshot':
-                # Full orderbook replacement
+                # Full orderbook replacement (validate item length to prevent IndexError)
                 self._orderbooks[symbol] = {
-                    'bids': {item[0]: item[1] for item in ob_data.get('b', [])},
-                    'asks': {item[0]: item[1] for item in ob_data.get('a', [])},
+                    'bids': {item[0]: item[1] for item in ob_data.get('b', []) if len(item) >= 2},
+                    'asks': {item[0]: item[1] for item in ob_data.get('a', []) if len(item) >= 2},
                     'update_id': ob_data.get('u', 0)
                 }
             elif update_type == 'delta':
@@ -236,15 +240,21 @@ class BybitSpotService(BaseService):
                     self.logger.warning(f"Received delta before snapshot for {symbol}")
                     return
 
-                # Apply bid updates
-                for price, qty in ob_data.get('b', []):
+                # Apply bid updates (validate entry length to prevent IndexError/ValueError)
+                for entry in ob_data.get('b', []):
+                    if len(entry) < 2:
+                        continue
+                    price, qty = entry[0], entry[1]
                     if float(qty) == 0:
                         self._orderbooks[symbol]['bids'].pop(price, None)
                     else:
                         self._orderbooks[symbol]['bids'][price] = qty
 
-                # Apply ask updates
-                for price, qty in ob_data.get('a', []):
+                # Apply ask updates (validate entry length to prevent IndexError/ValueError)
+                for entry in ob_data.get('a', []):
+                    if len(entry) < 2:
+                        continue
+                    price, qty = entry[0], entry[1]
                     if float(qty) == 0:
                         self._orderbooks[symbol]['asks'].pop(price, None)
                     else:
@@ -273,12 +283,17 @@ class BybitSpotService(BaseService):
             spread = None
             mid_price = None
             if sorted_bids and sorted_asks:
+                # Validate nested structure before indexing
+                if len(sorted_bids[0]) < 1 or len(sorted_asks[0]) < 1:
+                    self.logger.warning(f"Malformed orderbook entry for {symbol}")
+                    return
                 best_bid = float(sorted_bids[0][0])
                 best_ask = float(sorted_asks[0][0])
                 spread = best_ask - best_bid
                 # Skip storing if spread is invalid (crossed book)
                 if spread < 0:
                     self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
+                    del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
                     return
                 mid_price = (best_bid + best_ask) / 2
 
