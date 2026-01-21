@@ -56,7 +56,10 @@ These services start automatically and begin collecting data:
 1. **Bybit Spot** ✅
    - Collecting: BTC, ETH, SOL, BNB, DOGE prices
    - WebSocket: Live price updates
-   - Redis keys: `bybit_spot:*`
+   - Redis keys:
+     - `bybit_spot:*` - Last traded price (LTP)
+     - `bybit_spot_ob:*` - Orderbook data (50-level bids/asks, spread, mid_price)
+     - `bybit_spot_trades:*` - Recent trades (rolling 50 trades)
 
 2. **CoinDCX Futures LTP** ✅
    - Collecting: BTC, ETH, SOL, BNB, DOGE futures prices

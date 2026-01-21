@@ -250,14 +250,19 @@ async with aiohttp.ClientSession() as session:
 
 All exchanges should store data in Redis with this format:
 
-**Key Pattern**: `{redis_prefix}:{BASE_COIN}`
+**Key Patterns**:
+- `{redis_prefix}:{BASE_COIN}` - LTP (Last Traded Price)
+- `{redis_prefix}_ob:{BASE_COIN}` - Orderbook data (optional)
+- `{redis_prefix}_trades:{BASE_COIN}` - Recent trades (optional)
 
 Examples:
-- `bybit_spot:BTC`
-- `delta_futures:ETH`
-- `coindcx_futures:SOL`
+- `bybit_spot:BTC` - LTP data
+- `bybit_spot_ob:BTC` - Orderbook (50-level bids/asks, spread, mid_price)
+- `bybit_spot_trades:BTC` - Recent trades (rolling 50)
+- `delta_futures:ETH` - LTP data
+- `coindcx_futures:SOL` - LTP data
 
-**Data Structure** (Hash):
+**LTP Data Structure** (Hash):
 ```
 ltp: "106960.50"              # Required
 timestamp: "2025-10-19T..."    # Required
@@ -268,6 +273,25 @@ low_24h: "106486.5"            # Optional
 mark_price: "106960.678"       # Optional (Futures)
 funding_rate: "-0.00110166"    # Optional (Futures)
 open_interest: "220869"        # Optional (Futures)
+```
+
+**Orderbook Data Structure** (Hash):
+```
+bids: "[["106500.0","1.5"],...]"  # JSON array of [price, qty]
+asks: "[["106501.0","0.8"],...]"  # JSON array of [price, qty]
+spread: "1.0"                     # Best ask - best bid
+mid_price: "106500.5"             # (best_bid + best_ask) / 2
+update_id: "12345"                # Sequence number
+timestamp: "2025-10-19T..."       # Required
+original_symbol: "BTCUSDT"        # Required
+```
+
+**Trades Data Structure** (Hash):
+```
+trades: "[{"p":"106500","q":"0.1","s":"Buy","t":1705837200000,"id":"123"}]"
+count: "50"                       # Number of trades stored
+timestamp: "2025-10-19T..."       # Required
+original_symbol: "BTCUSDT"        # Required
 ```
 
 ---
