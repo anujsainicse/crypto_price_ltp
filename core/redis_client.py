@@ -1,7 +1,8 @@
 """Redis client for price_ltp."""
 
+import json
 import redis
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from config.settings import settings
@@ -149,6 +150,61 @@ class RedisClient:
         except Exception as e:
             self.logger.error(f"Failed to get keys for pattern {pattern}: {e}")
             return []
+
+    def get_orderbook(self, key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve orderbook data from Redis and parse JSON fields.
+
+        Args:
+            key: Redis key (e.g., 'bybit_spot_ob:BTC')
+
+        Returns:
+            Dictionary containing parsed orderbook data or None if not found
+        """
+        try:
+            data = self._client.hgetall(key)
+            if not data:
+                return None
+
+            # Parse JSON fields
+            result = {
+                'bids': json.loads(data.get('bids', '[]')),
+                'asks': json.loads(data.get('asks', '[]')),
+                'spread': float(data['spread']) if data.get('spread') else None,
+                'mid_price': float(data['mid_price']) if data.get('mid_price') else None,
+                'update_id': int(data.get('update_id', 0)),
+                'timestamp': data.get('timestamp', ''),
+                'original_symbol': data.get('original_symbol', '')
+            }
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to get orderbook for {key}: {e}")
+            return None
+
+    def get_trades(self, key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve trades data from Redis and parse JSON fields.
+
+        Args:
+            key: Redis key (e.g., 'bybit_spot_trades:BTC')
+
+        Returns:
+            Dictionary containing parsed trades data or None if not found
+        """
+        try:
+            data = self._client.hgetall(key)
+            if not data:
+                return None
+
+            # Parse JSON fields
+            result = {
+                'trades': json.loads(data.get('trades', '[]')),
+                'count': int(data.get('count', 0)),
+                'timestamp': data.get('timestamp', ''),
+                'original_symbol': data.get('original_symbol', '')
+            }
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to get trades for {key}: {e}")
+            return None
 
     def close(self):
         """Close Redis connection."""
