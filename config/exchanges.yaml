@@ -19,6 +19,20 @@ bybit:
       reconnect_interval: 5
       max_reconnect_attempts: 10
       redis_prefix: "bybit_spot"
+      # Quote currencies to strip from symbols (order matters - longest first)
+      quote_currencies:
+        - "USDT"
+        - "USDC"
+        - "BTC"
+        - "ETH"
+      # Orderbook configuration
+      orderbook_enabled: true
+      orderbook_depth: 50
+      orderbook_redis_prefix: "bybit_spot_ob"
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "bybit_spot_trades"
 
 coindcx:
   name: "CoinDCX"

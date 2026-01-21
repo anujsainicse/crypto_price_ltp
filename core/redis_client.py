@@ -1,7 +1,8 @@
 """Redis client for price_ltp."""
 
+import json
 import redis
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from config.settings import settings
@@ -149,6 +150,146 @@ class RedisClient:
         except Exception as e:
             self.logger.error(f"Failed to get keys for pattern {pattern}: {e}")
             return []
+
+    def get_orderbook(self, key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve orderbook data from Redis and parse JSON fields.
+
+        Args:
+            key: Redis key (e.g., 'bybit_spot_ob:BTC')
+
+        Returns:
+            Dictionary containing parsed orderbook data or None if not found
+        """
+        try:
+            data = self._client.hgetall(key)
+            if not data:
+                return None
+
+            # Parse JSON fields
+            result = {
+                'bids': json.loads(data.get('bids', '[]')),
+                'asks': json.loads(data.get('asks', '[]')),
+                'spread': float(data['spread']) if data.get('spread') else None,
+                'mid_price': float(data['mid_price']) if data.get('mid_price') else None,
+                'update_id': int(data.get('update_id', 0)),
+                'timestamp': data.get('timestamp', ''),
+                'original_symbol': data.get('original_symbol', '')
+            }
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to get orderbook for {key}: {e}")
+            return None
+
+    def set_orderbook_data(
+        self,
+        key: str,
+        bids: List,
+        asks: List,
+        spread: Optional[float] = None,
+        mid_price: Optional[float] = None,
+        update_id: int = 0,
+        original_symbol: str = '',
+        ttl: Optional[int] = None
+    ) -> bool:
+        """Store orderbook data in Redis as a hash.
+
+        Args:
+            key: Redis key (e.g., 'bybit_spot_ob:BTC')
+            bids: List of [price, qty] bid levels
+            asks: List of [price, qty] ask levels
+            spread: Bid-ask spread
+            mid_price: Mid price between best bid and ask
+            update_id: Sequence number for updates
+            original_symbol: Original symbol name
+            ttl: Time to live in seconds (default from settings)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            data = {
+                'bids': json.dumps(bids),
+                'asks': json.dumps(asks),
+                'spread': str(spread) if spread is not None else '',
+                'mid_price': str(mid_price) if mid_price is not None else '',
+                'update_id': str(update_id),
+                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'original_symbol': original_symbol
+            }
+
+            self._client.hset(key, mapping=data)
+
+            if ttl or settings.REDIS_TTL:
+                self._client.expire(key, ttl or settings.REDIS_TTL)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to set orderbook data for {key}: {e}")
+            return False
+
+    def get_trades(self, key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve trades data from Redis and parse JSON fields.
+
+        Args:
+            key: Redis key (e.g., 'bybit_spot_trades:BTC')
+
+        Returns:
+            Dictionary containing parsed trades data or None if not found
+        """
+        try:
+            data = self._client.hgetall(key)
+            if not data:
+                return None
+
+            # Parse JSON fields
+            result = {
+                'trades': json.loads(data.get('trades', '[]')),
+                'count': int(data.get('count', 0)),
+                'timestamp': data.get('timestamp', ''),
+                'original_symbol': data.get('original_symbol', '')
+            }
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to get trades for {key}: {e}")
+            return None
+
+    def set_trades_data(
+        self,
+        key: str,
+        trades: List[Dict[str, Any]],
+        original_symbol: str = '',
+        ttl: Optional[int] = None
+    ) -> bool:
+        """Store trades data in Redis as a hash.
+
+        Args:
+            key: Redis key (e.g., 'bybit_spot_trades:BTC')
+            trades: List of trade dictionaries
+            original_symbol: Original symbol name
+            ttl: Time to live in seconds (default from settings)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            data = {
+                'trades': json.dumps(trades),
+                'count': str(len(trades)),
+                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'original_symbol': original_symbol
+            }
+
+            self._client.hset(key, mapping=data)
+
+            if ttl or settings.REDIS_TTL:
+                self._client.expire(key, ttl or settings.REDIS_TTL)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to set trades data for {key}: {e}")
+            return False
 
     def close(self):
         """Close Redis connection."""
