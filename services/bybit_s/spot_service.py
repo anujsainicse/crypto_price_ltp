@@ -37,9 +37,26 @@ class BybitSpotService(BaseService):
         self.trades_limit = config.get('trades_limit', 50)
         self.trades_redis_prefix = config.get('trades_redis_prefix', 'bybit_spot_trades')
 
+        # Quote currencies for symbol parsing (order matters - longest first)
+        self.quote_currencies = config.get('quote_currencies', ['USDT', 'USDC', 'BTC', 'ETH'])
+
         # In-memory state for orderbooks and trades
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
         self._trades: Dict[str, deque] = {}
+
+    def _extract_base_coin(self, symbol: str) -> str:
+        """Extract base coin from symbol by removing quote currency.
+
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT', 'ETHBTC')
+
+        Returns:
+            Base coin (e.g., 'BTC', 'ETH')
+        """
+        for quote in self.quote_currencies:
+            if symbol.endswith(quote):
+                return symbol[:-len(quote)]
+        return symbol
 
     async def start(self):
         """Start the Bybit spot price streaming service."""
@@ -164,7 +181,7 @@ class BybitSpotService(BaseService):
                 return
 
             # Extract base coin (e.g., BTC from BTCUSDT)
-            base_coin = symbol.replace('USDT', '')
+            base_coin = self._extract_base_coin(symbol)
 
             # Store in Redis
             redis_key = f"{self.redis_prefix}:{base_coin}"
@@ -204,7 +221,7 @@ class BybitSpotService(BaseService):
                 return
 
             # Extract base coin (e.g., BTC from BTCUSDT)
-            base_coin = symbol.replace('USDT', '')
+            base_coin = self._extract_base_coin(symbol)
 
             if update_type == 'snapshot':
                 # Full orderbook replacement
@@ -259,27 +276,29 @@ class BybitSpotService(BaseService):
                 best_bid = float(sorted_bids[0][0])
                 best_ask = float(sorted_asks[0][0])
                 spread = best_ask - best_bid
+                # Skip storing if spread is invalid (crossed book)
+                if spread < 0:
+                    self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
+                    return
                 mid_price = (best_bid + best_ask) / 2
 
-            # Store in Redis
+            # Store in Redis using public API
             redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
-            redis_data = {
-                'bids': json.dumps(sorted_bids),
-                'asks': json.dumps(sorted_asks),
-                'spread': str(spread) if spread is not None else '',
-                'mid_price': str(mid_price) if mid_price is not None else '',
-                'update_id': str(ob.get('update_id', 0)),
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
-                'original_symbol': symbol
-            }
-
-            self.redis_client._client.hset(redis_key, mapping=redis_data)
-            self.redis_client._client.expire(redis_key, 60)  # 60s TTL
-
-            self.logger.debug(
-                f"Updated orderbook {base_coin}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
-                f"spread: {spread}"
+            success = self.redis_client.set_orderbook_data(
+                key=redis_key,
+                bids=sorted_bids,
+                asks=sorted_asks,
+                spread=spread,
+                mid_price=mid_price,
+                update_id=ob.get('update_id', 0),
+                original_symbol=symbol
             )
+
+            if success:
+                self.logger.debug(
+                    f"Updated orderbook {base_coin}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
+                    f"spread: {spread}"
+                )
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")
@@ -298,42 +317,42 @@ class BybitSpotService(BaseService):
 
             for trade in trades_data:
                 symbol = trade.get('s', '')
-                if not symbol:
+                price = trade.get('p', '')
+                quantity = trade.get('v', '')
+
+                # Validate required fields
+                if not symbol or not price or not quantity:
                     continue
 
                 # Extract base coin (e.g., BTC from BTCUSDT)
-                base_coin = symbol.replace('USDT', '')
+                base_coin = self._extract_base_coin(symbol)
 
-                # Initialize deque for this symbol if not exists
-                if symbol not in self._trades:
-                    self._trades[symbol] = deque(maxlen=self.trades_limit)
+                # Initialize deque for this symbol if not exists (atomic)
+                self._trades.setdefault(symbol, deque(maxlen=self.trades_limit))
 
                 # Append trade with compact field names
                 self._trades[symbol].append({
-                    'p': trade.get('p', ''),      # price
-                    'q': trade.get('v', ''),      # quantity (v is volume in Bybit)
+                    'p': price,                   # price
+                    'q': quantity,                # quantity (v is volume in Bybit)
                     's': trade.get('S', ''),      # side (Buy/Sell)
                     't': trade.get('T', 0),       # timestamp
                     'id': trade.get('i', '')      # trade id
                 })
 
-                # Store in Redis
+                # Store in Redis using public API
                 redis_key = f"{self.trades_redis_prefix}:{base_coin}"
                 trades_list = list(self._trades[symbol])
-                redis_data = {
-                    'trades': json.dumps(trades_list),
-                    'count': str(len(trades_list)),
-                    'timestamp': datetime.utcnow().isoformat() + 'Z',
-                    'original_symbol': symbol
-                }
-
-                self.redis_client._client.hset(redis_key, mapping=redis_data)
-                self.redis_client._client.expire(redis_key, 60)  # 60s TTL
-
-                self.logger.debug(
-                    f"Updated trades {base_coin}: {len(trades_list)} trades, "
-                    f"latest: {trade.get('p')} @ {trade.get('S')}"
+                success = self.redis_client.set_trades_data(
+                    key=redis_key,
+                    trades=trades_list,
+                    original_symbol=symbol
                 )
+
+                if success:
+                    self.logger.debug(
+                        f"Updated trades {base_coin}: {len(trades_list)} trades, "
+                        f"latest: {trade.get('p')} @ {trade.get('S')}"
+                    )
 
         except Exception as e:
             self.logger.error(f"Error processing trade update: {e}")
