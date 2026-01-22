@@ -10,7 +10,11 @@ from core.base_service import BaseService
 
 
 class CoinDCXFuturesLTPService(BaseService):
-    """Service for streaming CoinDCX futures LTP via Socket.IO."""
+    """Service for streaming CoinDCX futures LTP via Socket.IO.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{base_coin} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize CoinDCX Futures LTP Service.
@@ -24,6 +28,7 @@ class CoinDCXFuturesLTPService(BaseService):
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'coindcx_futures')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.sio: Optional[socketio.AsyncClient] = None
         self.ws_connected = False
         self.ping_task: Optional[asyncio.Task] = None
@@ -145,6 +150,13 @@ class CoinDCXFuturesLTPService(BaseService):
             if not symbol or not price:
                 return
 
+            try:
+                price_float = float(price)
+                if price_float <= 0:
+                    return
+            except (ValueError, TypeError):
+                return
+
             # Extract base coin (e.g., BTC from B-BTC_USDT)
             base_coin = symbol.replace('B-', '').split('_')[0]
 
@@ -168,13 +180,14 @@ class CoinDCXFuturesLTPService(BaseService):
             # Store in Redis
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=float(price),
+                price=price_float,
                 symbol=symbol,
-                additional_data=additional_data
+                additional_data=additional_data,
+                ttl=self.redis_ttl
             )
 
             if success:
-                self.logger.debug(f"Updated {base_coin}: ${price}")
+                self.logger.debug(f"Updated {base_coin}: ${price_float}")
 
         except Exception as e:
             self.logger.error(f"Error processing trade message: {e}")

@@ -10,7 +10,11 @@ from core.base_service import BaseService
 
 
 class HyperLiquidSpotService(BaseService):
-    """Service for streaming HyperLiquid spot prices via WebSocket."""
+    """Service for streaming HyperLiquid spot prices via WebSocket.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{symbol} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize HyperLiquid Spot Service.
@@ -24,6 +28,7 @@ class HyperLiquidSpotService(BaseService):
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'hyperliquid_spot')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
 
     async def start(self):
@@ -137,19 +142,27 @@ class HyperLiquidSpotService(BaseService):
                 if symbol in mids_data:
                     mid_price = mids_data[symbol]
 
+                    try:
+                        price = float(mid_price)
+                        if price <= 0:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+
                     # Store in Redis
                     redis_key = f"{self.redis_prefix}:{symbol}"
                     success = self.redis_client.set_price_data(
                         key=redis_key,
-                        price=float(mid_price),
+                        price=price,
                         symbol=symbol,
                         additional_data={
                             'price_type': 'mid'
-                        }
+                        },
+                        ttl=self.redis_ttl
                     )
 
                     if success:
-                        self.logger.debug(f"Updated {symbol}: ${mid_price}")
+                        self.logger.debug(f"Updated {symbol}: ${price}")
 
         except Exception as e:
             self.logger.error(f"Error processing mids update: {e}")

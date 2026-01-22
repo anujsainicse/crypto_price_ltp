@@ -10,7 +10,11 @@ from core.base_service import BaseService
 
 
 class DeltaFuturesLTPService(BaseService):
-    """Service for streaming Delta Exchange futures LTP via WebSocket."""
+    """Service for streaming Delta Exchange futures LTP via WebSocket.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{base_coin} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize Delta Futures LTP Service.
@@ -24,6 +28,7 @@ class DeltaFuturesLTPService(BaseService):
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'delta_futures')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
 
     async def start(self):
@@ -149,6 +154,13 @@ class DeltaFuturesLTPService(BaseService):
             if not price:
                 return
 
+            try:
+                price_float = float(price)
+                if price_float <= 0:
+                    return
+            except (ValueError, TypeError):
+                return
+
             # Extract base coin (e.g., BTC from BTCUSD or BTCUSDT)
             # Delta format is usually like: BTCUSD, ETHUSDT
             base_coin = ticker_data.replace('USDT', '').replace('USD', '').replace('PERP', '')
@@ -170,14 +182,15 @@ class DeltaFuturesLTPService(BaseService):
             # Store in Redis
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=float(price),
+                price=price_float,
                 symbol=ticker_data,
-                additional_data=additional_data
+                additional_data=additional_data,
+                ttl=self.redis_ttl
             )
 
             if success:
                 self.logger.debug(
-                    f"Updated {base_coin}: ${price} "
+                    f"Updated {base_coin}: ${price_float} "
                     f"(Mark: ${data.get('mark_price', 'N/A')})"
                 )
 

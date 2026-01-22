@@ -10,7 +10,11 @@ from core.base_service import BaseService
 
 
 class BybitSpotTestnetService(BaseService):
-    """Service for streaming Bybit Spot TestNet prices via WebSocket."""
+    """Service for streaming Bybit Spot TestNet prices via WebSocket.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{base_coin} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize Bybit Spot TestNet Service.
@@ -24,7 +28,23 @@ class BybitSpotTestnetService(BaseService):
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'bybit_spot_testnet')
+        self.redis_ttl = config.get('redis_ttl', 60)
+        self.quote_currencies = config.get('quote_currencies', ['USDT', 'USDC', 'BTC', 'ETH'])
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+
+    def _extract_base_coin(self, symbol: str) -> str:
+        """Extract base coin from symbol by removing quote currency.
+
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+
+        Returns:
+            Base coin (e.g., 'BTC')
+        """
+        for quote in self.quote_currencies:
+            if symbol.endswith(quote):
+                return symbol[:-len(quote)]
+        return symbol
 
     async def start(self):
         """Start the Bybit Spot TestNet price streaming service."""
@@ -133,21 +153,29 @@ class BybitSpotTestnetService(BaseService):
             if not symbol or not last_price:
                 return
 
+            try:
+                price = float(last_price)
+                if price <= 0:
+                    return
+            except (ValueError, TypeError):
+                return
+
             # Extract base coin (e.g., BTC from BTCUSDT)
-            base_coin = symbol.replace('USDT', '')
+            base_coin = self._extract_base_coin(symbol)
 
             # Store in Redis
             redis_key = f"{self.redis_prefix}:{base_coin}"
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=float(last_price),
+                price=price,
                 symbol=symbol,
                 additional_data={
                     'volume_24h': ticker_data.get('volume24h', '0'),
                     'high_24h': ticker_data.get('highPrice24h', '0'),
                     'low_24h': ticker_data.get('lowPrice24h', '0'),
                     'price_change_percent': ticker_data.get('price24hPcnt', '0')
-                }
+                },
+                ttl=self.redis_ttl
             )
 
             if success:

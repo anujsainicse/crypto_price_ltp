@@ -11,7 +11,11 @@ from core.base_service import BaseService
 
 
 class DeltaOptionsService(BaseService):
-    """Service for streaming Delta Exchange options data via WebSocket."""
+    """Service for streaming Delta Exchange options data via WebSocket.
+
+    Redis Key Patterns:
+        Option: {redis_prefix}:{symbol} (Hash)
+    """
 
     # REST API endpoint for fetching tickers (using India API for more options)
     REST_API_URL = "https://api.india.delta.exchange/v2/tickers"
@@ -41,6 +45,7 @@ class DeltaOptionsService(BaseService):
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'delta_options')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Active symbols (will be populated dynamically or from config)
         self.active_symbols: List[str] = []
@@ -407,6 +412,13 @@ class DeltaOptionsService(BaseService):
             if not price:
                 return
 
+            try:
+                price_float = float(price)
+                if price_float <= 0:
+                    return
+            except (ValueError, TypeError):
+                return
+
             # Extract option details from symbol
             # Delta options format: C-BTC-106000-241220 (Call, BTC, Strike 106000, Expiry 20-Dec-24)
             # or P-BTC-106000-241220 (Put)
@@ -440,14 +452,15 @@ class DeltaOptionsService(BaseService):
             # Store in Redis
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=float(price),
+                price=price_float,
                 symbol=symbol,
-                additional_data=additional_data
+                additional_data=additional_data,
+                ttl=self.redis_ttl
             )
 
             if success:
                 self.logger.info(
-                    f"[REDIS] Stored {symbol}: ${price} "
+                    f"[REDIS] Stored {symbol}: ${price_float} "
                     f"(Type: {option_info.get('type')}, Strike: {option_info.get('strike')}, "
                     f"IV: {additional_data.get('implied_volatility', 'N/A')})"
                 )

@@ -12,7 +12,9 @@ from config.settings import Settings
 # Import services
 from services.bybit_s import BybitSpotService
 from services.coindcx_f import CoinDCXFuturesLTPService, CoinDCXFundingRateService
+from services.coindcx_s import CoinDCXSpotService
 from services.delta_f import DeltaFuturesLTPService
+from services.delta_s import DeltaSpotService
 from services.delta_o import DeltaOptionsService
 from services.hyperliquid_s import HyperLiquidSpotService
 from services.hyperliquid_p import HyperLiquidPerpetualService
@@ -98,6 +100,18 @@ class ServiceManager:
                 self.logger.info("✓ Bybit Spot Service loaded")
 
         elif exchange == 'coindcx':
+            # CoinDCX Spot Service
+            spot_config = services_config.get('spot', {})
+            if spot_config.get('enabled', False):
+                service = CoinDCXSpotService(spot_config)
+                self.services.append(service)
+                self.service_registry['coindcx_spot'] = {
+                    'service': service,
+                    'task': None,
+                    'config': spot_config
+                }
+                self.logger.info("✓ CoinDCX Spot Service loaded")
+
             # CoinDCX Futures LTP Service
             ltp_config = services_config.get('futures_ltp', {})
             if ltp_config.get('enabled', False):
@@ -123,6 +137,18 @@ class ServiceManager:
                 self.logger.info("✓ CoinDCX Funding Rate Service loaded")
 
         elif exchange == 'delta':
+            # Delta Spot Service
+            spot_config = services_config.get('spot', {})
+            if spot_config.get('enabled', False):
+                service = DeltaSpotService(spot_config)
+                self.services.append(service)
+                self.service_registry['delta_spot'] = {
+                    'service': service,
+                    'task': None,
+                    'config': spot_config
+                }
+                self.logger.info("✓ Delta Spot Service loaded")
+
             # Delta Futures LTP Service
             ltp_config = services_config.get('futures_ltp', {})
             if ltp_config.get('enabled', False):
