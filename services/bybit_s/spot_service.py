@@ -24,7 +24,6 @@ class BybitSpotService(BaseService):
         self.ws_url = config.get('websocket_url', 'wss://stream.bybit.com/v5/public/spot')
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
-        self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'bybit_spot')
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
@@ -77,7 +76,7 @@ class BybitSpotService(BaseService):
 
         reconnect_attempts = 0
 
-        while self.running and reconnect_attempts < self.max_reconnect_attempts:
+        while self.running:
             try:
                 await self._connect_and_stream()
                 reconnect_attempts = 0  # Reset on successful connection
@@ -85,18 +84,12 @@ class BybitSpotService(BaseService):
                 reconnect_attempts += 1
                 # Clear stale WebSocket reference
                 self.websocket = None
-                self.logger.error(
-                    f"Connection error (attempt {reconnect_attempts}/{self.max_reconnect_attempts}): {e}"
-                )
+                self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
 
-                if reconnect_attempts < self.max_reconnect_attempts:
-                    # Use exponential backoff
-                    delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
-                    self.logger.info(f"Reconnecting in {delay} seconds...")
-                    await asyncio.sleep(delay)
-                else:
-                    self.logger.error("Max reconnection attempts reached")
-                    break
+                # Exponential backoff with 60s cap (never give up)
+                delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
+                self.logger.info(f"Reconnecting in {delay} seconds...")
+                await asyncio.sleep(delay)
 
     async def _connect_and_stream(self):
         """Connect to WebSocket and stream prices."""
