@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import websockets
 from typing import Optional
 from datetime import datetime
@@ -25,6 +26,8 @@ class DeltaFuturesLTPService(BaseService):
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'delta_futures')
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
+        self.backoff_delays = [5, 10, 20, 40, 60]
 
     async def start(self):
         """Start the Delta futures LTP streaming service."""
@@ -48,13 +51,17 @@ class DeltaFuturesLTPService(BaseService):
                 reconnect_attempts = 0  # Reset on successful connection
             except Exception as e:
                 reconnect_attempts += 1
+                # Clear stale WebSocket reference
+                self.websocket = None
                 self.logger.error(
                     f"Connection error (attempt {reconnect_attempts}/{self.max_reconnect_attempts}): {e}"
                 )
 
                 if reconnect_attempts < self.max_reconnect_attempts:
-                    self.logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
-                    await asyncio.sleep(self.reconnect_interval)
+                    # Use exponential backoff
+                    delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
+                    self.logger.info(f"Reconnecting in {delay} seconds...")
+                    await asyncio.sleep(delay)
                 else:
                     self.logger.error("Max reconnection attempts reached")
                     break
@@ -64,7 +71,7 @@ class DeltaFuturesLTPService(BaseService):
         async with websockets.connect(
             self.ws_url,
             ping_interval=20,
-            ping_timeout=10
+            ping_timeout=30  # Matches CLAUDE.md specification
         ) as websocket:
             self.websocket = websocket
             self.logger.info("WebSocket connected successfully")
@@ -149,6 +156,16 @@ class DeltaFuturesLTPService(BaseService):
             if not price:
                 return
 
+            # Validate price before float conversion
+            try:
+                price_float = float(price)
+                if not math.isfinite(price_float) or price_float <= 0:
+                    self.logger.warning(f"Invalid price for {ticker_data}: {price}")
+                    return
+            except (ValueError, TypeError):
+                self.logger.warning(f"Cannot convert price to float for {ticker_data}: {price}")
+                return
+
             # Extract base coin (e.g., BTC from BTCUSD or BTCUSDT)
             # Delta format is usually like: BTCUSD, ETHUSDT
             base_coin = ticker_data.replace('USDT', '').replace('USD', '').replace('PERP', '')
@@ -170,7 +187,7 @@ class DeltaFuturesLTPService(BaseService):
             # Store in Redis
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=float(price),
+                price=price_float,
                 symbol=ticker_data,
                 additional_data=additional_data
             )

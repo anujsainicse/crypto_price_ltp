@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import websockets
 from typing import Optional
 from datetime import datetime
@@ -25,6 +26,8 @@ class HyperLiquidSpotService(BaseService):
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'hyperliquid_spot')
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
+        self.backoff_delays = [5, 10, 20, 40, 60]
 
     async def start(self):
         """Start the HyperLiquid spot price streaming service."""
@@ -48,13 +51,17 @@ class HyperLiquidSpotService(BaseService):
                 reconnect_attempts = 0  # Reset on successful connection
             except Exception as e:
                 reconnect_attempts += 1
+                # Clear stale WebSocket reference
+                self.websocket = None
                 self.logger.error(
                     f"Connection error (attempt {reconnect_attempts}/{self.max_reconnect_attempts}): {e}"
                 )
 
                 if reconnect_attempts < self.max_reconnect_attempts:
-                    self.logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
-                    await asyncio.sleep(self.reconnect_interval)
+                    # Use exponential backoff
+                    delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
+                    self.logger.info(f"Reconnecting in {delay} seconds...")
+                    await asyncio.sleep(delay)
                 else:
                     self.logger.error("Max reconnection attempts reached")
                     break
@@ -64,7 +71,7 @@ class HyperLiquidSpotService(BaseService):
         async with websockets.connect(
             self.ws_url,
             ping_interval=20,
-            ping_timeout=10
+            ping_timeout=30  # Matches CLAUDE.md specification
         ) as websocket:
             self.websocket = websocket
             self.logger.info("WebSocket connected successfully")
@@ -137,11 +144,21 @@ class HyperLiquidSpotService(BaseService):
                 if symbol in mids_data:
                     mid_price = mids_data[symbol]
 
+                    # Validate price before float conversion
+                    try:
+                        price_float = float(mid_price)
+                        if not math.isfinite(price_float) or price_float <= 0:
+                            self.logger.warning(f"Invalid price for {symbol}: {mid_price}")
+                            continue
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"Cannot convert price to float for {symbol}: {mid_price}")
+                        continue
+
                     # Store in Redis
                     redis_key = f"{self.redis_prefix}:{symbol}"
                     success = self.redis_client.set_price_data(
                         key=redis_key,
-                        price=float(mid_price),
+                        price=price_float,
                         symbol=symbol,
                         additional_data={
                             'price_type': 'mid'

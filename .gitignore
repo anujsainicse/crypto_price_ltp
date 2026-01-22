@@ -64,3 +64,15 @@ dmypy.json
 # Runtime PID files
 *.pid
 .*.pid
+
+# User-specific Claude config (role-based)
+.claude/CLAUDE.local.md
+.claude/settings.local.json
+.claude/*.local.*
+
+# Research and discovery tools
+coindcx_options_discovery/
+coindcx_options_discovery.zip
+
+# Temporary scripts (development only)
+scripts/

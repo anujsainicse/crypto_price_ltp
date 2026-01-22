@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import websockets
 import aiohttp
 from typing import Optional, List, Dict
@@ -42,8 +43,12 @@ class DeltaOptionsService(BaseService):
         self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'delta_options')
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
+        self.backoff_delays = [5, 10, 20, 40, 60]
         # Active symbols (will be populated dynamically or from config)
         self.active_symbols: List[str] = []
+        # Maximum symbols to track to prevent unbounded memory growth
+        self.max_active_symbols = config.get('max_active_symbols', 500)
         # Symbol refresh interval (1 hour)
         self.symbol_refresh_interval = config.get('symbol_refresh_interval', 3600)
 
@@ -131,6 +136,14 @@ class DeltaOptionsService(BaseService):
                 f"Selected {len(selected_calls)} calls and {len(selected_puts)} puts for {underlying}"
             )
 
+        # Enforce maximum symbol limit to prevent unbounded memory growth
+        if len(selected) > self.max_active_symbols:
+            self.logger.warning(
+                f"Symbol count ({len(selected)}) exceeds max limit ({self.max_active_symbols}). "
+                f"Truncating to first {self.max_active_symbols} symbols."
+            )
+            selected = selected[:self.max_active_symbols]
+
         self.logger.info(f"Total options to subscribe: {len(selected)}")
         return selected
 
@@ -186,13 +199,17 @@ class DeltaOptionsService(BaseService):
                 reconnect_attempts = 0  # Reset on successful connection
             except Exception as e:
                 reconnect_attempts += 1
+                # Clear stale WebSocket reference
+                self.websocket = None
                 self.logger.error(
                     f"Connection error (attempt {reconnect_attempts}/{self.max_reconnect_attempts}): {e}"
                 )
 
                 if reconnect_attempts < self.max_reconnect_attempts:
-                    self.logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
-                    await asyncio.sleep(self.reconnect_interval)
+                    # Use exponential backoff
+                    delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
+                    self.logger.info(f"Reconnecting in {delay} seconds...")
+                    await asyncio.sleep(delay)
                 else:
                     self.logger.error("Max reconnection attempts reached")
                     break
@@ -407,6 +424,16 @@ class DeltaOptionsService(BaseService):
             if not price:
                 return
 
+            # Validate price before float conversion
+            try:
+                price_float = float(price)
+                if not math.isfinite(price_float) or price_float < 0:  # Options can have 0 price
+                    self.logger.warning(f"Invalid price for {symbol}: {price}")
+                    return
+            except (ValueError, TypeError):
+                self.logger.warning(f"Cannot convert price to float for {symbol}: {price}")
+                return
+
             # Extract option details from symbol
             # Delta options format: C-BTC-106000-241220 (Call, BTC, Strike 106000, Expiry 20-Dec-24)
             # or P-BTC-106000-241220 (Put)
@@ -440,7 +467,7 @@ class DeltaOptionsService(BaseService):
             # Store in Redis
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=float(price),
+                price=price_float,
                 symbol=symbol,
                 additional_data=additional_data
             )

@@ -52,7 +52,13 @@ class BaseService(ABC):
             frame: Current stack frame
         """
         self.logger.info(f"Received signal {signum}, shutting down...")
-        self._shutdown_event.set()
+        # Thread-safe event set from synchronous signal handler
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(self._shutdown_event.set)
+        except RuntimeError:
+            # No running loop, set directly
+            self._shutdown_event.set()
 
     async def run(self):
         """Run the service with signal handling."""

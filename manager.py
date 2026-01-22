@@ -51,7 +51,13 @@ class ServiceManager:
             frame: Current stack frame
         """
         self.logger.info(f"Received signal {signum}, initiating shutdown...")
-        self._shutdown_event.set()
+        # Thread-safe event set from synchronous signal handler
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(self._shutdown_event.set)
+        except RuntimeError:
+            # No running loop, set directly
+            self._shutdown_event.set()
 
     def _initialize_services(self):
         """Initialize all configured services."""
@@ -367,10 +373,14 @@ class ServiceManager:
 
         # Recreate service instance with fresh state
         config = self.service_registry[service_id]['config']
-        service_class = type(self.service_registry[service_id]['service'])
+        old_service = self.service_registry[service_id]['service']
+        service_class = type(old_service)
         new_service = service_class(config)
+
+        # Replace old service in both registry and services list
         self.service_registry[service_id]['service'] = new_service
-        self.services = [s for s in self.services if s != self.service_registry[service_id]['service']]
+        # Remove old service by identity, then add new one
+        self.services = [s for s in self.services if s is not old_service]
         self.services.append(new_service)
 
         # Increment restart counter and restart
