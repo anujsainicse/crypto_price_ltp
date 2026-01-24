@@ -3,6 +3,7 @@
 import asyncio
 import json
 import math
+import time
 import websockets
 from typing import Optional
 from datetime import datetime
@@ -51,9 +52,15 @@ class HyperLiquidPerpetualService(BaseService):
 
         while self.running:
             try:
+                connection_start_time = time.time()
                 await self._connect_and_stream()
                 reconnect_attempts = 0  # Reset on successful connection
             except Exception as e:
+                # Reset attempts if connection was stable for >30s
+                connection_duration = time.time() - connection_start_time
+                if connection_duration > 30:
+                    reconnect_attempts = 0
+
                 reconnect_attempts += 1
                 # Clear stale WebSocket reference
                 self.websocket = None
