@@ -75,7 +75,7 @@ def test_redis_scan():
     # Create multiple test keys
     test_prefix = "test:scan_test"
     for i in range(10):
-        client._client.set(f"{test_prefix}:{i}", f"value{i}")
+        client.set(f"{test_prefix}:{i}", f"value{i}")
 
     # Get all keys using our method
     keys = client.get_all_keys(f"{test_prefix}:*")
@@ -92,7 +92,7 @@ def test_redis_scan():
 
     # Cleanup
     for i in range(10):
-        client._client.delete(f"{test_prefix}:{i}")
+        client.delete_key(f"{test_prefix}:{i}")
 
     print("✓ get_all_keys correctly retrieves all keys")
     print("✓ Keys are returned as strings")

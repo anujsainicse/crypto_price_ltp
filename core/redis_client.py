@@ -169,6 +169,22 @@ class RedisClient:
             self.logger.error(f"Failed to delete key {key}: {e}")
             return False
 
+    def set(self, key: str, value: str) -> bool:
+        """Set key value.
+
+        Args:
+            key: Redis key
+            value: Value to set
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            return bool(self._client.set(key, value))
+        except Exception as e:
+            self.logger.error(f"Failed to set key {key}: {e}")
+            return False
+
     def get_all_keys(self, pattern: str = "*") -> list:
         """Get all keys matching a pattern using SCAN (non-blocking).
 
