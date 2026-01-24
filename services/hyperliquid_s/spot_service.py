@@ -237,6 +237,8 @@ class HyperLiquidSpotService(BaseService):
             def parse_levels(items):
                 parsed = []
                 for item in items:
+                    if not isinstance(item, dict):
+                        continue
                     try:
                         px = float(item.get('px', 0))
                         sz = float(item.get('sz', 0))
@@ -306,6 +308,8 @@ class HyperLiquidSpotService(BaseService):
 
             # Process trades
             for trade in trades_list:
+                if not isinstance(trade, dict):
+                    continue
                 try:
                     px = float(trade.get('px', 0))
                     sz = float(trade.get('sz', 0))
