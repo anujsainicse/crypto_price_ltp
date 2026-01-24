@@ -234,7 +234,7 @@ class HyperLiquidSpotService(BaseService):
                     try:
                         px = float(item.get('px', 0))
                         sz = float(item.get('sz', 0))
-                        if px > 0 and sz > 0:
+                        if px > 0 and sz > 0 and math.isfinite(px) and math.isfinite(sz):
                             parsed.append([px, sz])
                     except (ValueError, TypeError):
                         continue
@@ -245,26 +245,25 @@ class HyperLiquidSpotService(BaseService):
             # Sort Asks (Asc)
             asks = sorted(parse_levels(raw_asks), key=lambda x: x[0])[:self.orderbook_depth]
 
-            # Update state
-            self._orderbooks[symbol] = {
-                'bids': bids,
-                'asks': asks,
-                'timestamp': content.get('time')
-            }
-
-            # Calc spread/mid
+            # Validate spread before updating state
             best_bid = bids[0][0] if bids else 0
             best_ask = asks[0][0] if asks else 0
             spread = 0.0
             mid_price = 0.0
 
             if best_bid > 0 and best_ask > 0:
+                if best_bid >= best_ask:
+                    self.logger.warning(f"Crossed book for {symbol}: Bid {best_bid} >= Ask {best_ask}. Dropping update.")
+                    return
                 spread = best_ask - best_bid
-                if spread < 0:
-                     # Log warning but don't stop processing - might be transient
-                     # self.logger.warning(f"Crossed book for {symbol}: Bid {best_bid} > Ask {best_ask}")
-                     pass
                 mid_price = (best_bid + best_ask) / 2
+
+            # Update state
+            self._orderbooks[symbol] = {
+                'bids': bids,
+                'asks': asks,
+                'timestamp': content.get('time')
+            }
 
             # Store in Redis
             redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
@@ -309,7 +308,7 @@ class HyperLiquidSpotService(BaseService):
                     raw_side = trade.get('side')
                     side = 'Buy' if raw_side == 'B' else 'Sell' if raw_side == 'A' else str(raw_side)
 
-                    if px > 0 and sz > 0:
+                    if px > 0 and sz > 0 and math.isfinite(px) and math.isfinite(sz):
                         self._trades[symbol].append({
                             'p': px,
                             'q': sz,
