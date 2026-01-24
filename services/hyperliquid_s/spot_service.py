@@ -328,7 +328,7 @@ class HyperLiquidSpotService(BaseService):
                             'q': sz,
                             's': side,
                             't': trade.get('time'),
-                            'id': str(trade.get('hash', trade.get('time'))) # Use hash if available, else time
+                            'id': str(trade.get('hash', trade.get('time') or f"unknown_{int(time.time()*1000)}")) # Use hash if available, else time, else fallback
                         })
                 except (ValueError, TypeError):
                     continue
