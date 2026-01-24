@@ -200,7 +200,7 @@ class HyperLiquidSpotService(BaseService):
 
                     # Store in Redis
                     redis_key = f"{self.redis_prefix}:{symbol}"
-                    self.redis_client.set_price_data(
+                    success = self.redis_client.set_price_data(
                         key=redis_key,
                         price=price,
                         symbol=symbol,
@@ -209,6 +209,8 @@ class HyperLiquidSpotService(BaseService):
                         },
                         ttl=self.redis_ttl
                     )
+                    if not success:
+                        self.logger.warning(f"Failed to update price in Redis for {symbol}")
 
                     # Note: We don't log every mid update as it's too high frequency
 
@@ -275,7 +277,7 @@ class HyperLiquidSpotService(BaseService):
 
             # Store in Redis
             redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
-            self.redis_client.set_orderbook_data(
+            success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=bids,
                 asks=asks,
@@ -285,6 +287,8 @@ class HyperLiquidSpotService(BaseService):
                 original_symbol=symbol,
                 ttl=self.redis_ttl
             )
+            if not success:
+                self.logger.warning(f"Failed to update orderbook in Redis for {symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook: {e}")
@@ -331,12 +335,14 @@ class HyperLiquidSpotService(BaseService):
 
             # Store in Redis
             redis_key = f"{self.trades_redis_prefix}:{symbol}"
-            self.redis_client.set_trades_data(
+            success = self.redis_client.set_trades_data(
                 key=redis_key,
                 trades=list(self._trades[symbol]),
                 original_symbol=symbol,
                 ttl=self.redis_ttl
             )
+            if not success:
+                self.logger.warning(f"Failed to update trades in Redis for {symbol}")
 
         except Exception as e:
              self.logger.error(f"Error processing trades: {e}")

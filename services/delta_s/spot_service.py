@@ -263,7 +263,7 @@ class DeltaSpotService(BaseService):
             # Store in Redis hash
             redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
 
-            self.redis_client.set_orderbook_data(
+            success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=bids,
                 asks=asks,
@@ -274,10 +274,13 @@ class DeltaSpotService(BaseService):
                 ttl=self.redis_ttl
             )
 
-            self.logger.debug(
-                f"Updated {base_coin} order book: spread=${spread:.2f}, "
-                f"mid=${mid_price:.2f}, {len(bids)} bids, {len(asks)} asks"
-            )
+            if success:
+                self.logger.debug(
+                    f"Updated {base_coin} order book: spread=${spread:.2f}, "
+                    f"mid=${mid_price:.2f}, {len(bids)} bids, {len(asks)} asks"
+                )
+            else:
+                self.logger.warning(f"Failed to update orderbook in Redis for {base_coin}")
 
         except Exception as e:
             self.logger.error(f"Error processing order book update: {e}")
@@ -375,12 +378,15 @@ class DeltaSpotService(BaseService):
         # Convert deque to list for storage
         trades_list = list(self._trades[symbol])
 
-        self.redis_client.set_trades_data(
+        success = self.redis_client.set_trades_data(
             key=redis_key,
             trades=trades_list,
             original_symbol=symbol,
             ttl=self.redis_ttl
         )
+
+        if not success:
+            self.logger.warning(f"Failed to update trades in Redis for {base_coin}")
 
     def _extract_base_coin(self, symbol: str) -> str:
         """Extract base coin from Delta symbol (e.g., BTCUSD -> BTC)."""

@@ -174,6 +174,8 @@ class HyperLiquidPerpetualService(BaseService):
 
                     if success:
                         self.logger.debug(f"Updated {symbol}: ${price}")
+                    else:
+                        self.logger.warning(f"Failed to update price in Redis for {symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing mids update: {e}")
