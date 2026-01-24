@@ -243,13 +243,13 @@ async def health_check() -> Dict:
 # ==================== Main ====================
 
 def kill_port_process(port: int):
-    """Kill any process using the specified port.
+    """Kill process using the specified port, only if it's a dashboard process.
 
     Args:
         port: Port number to free up
     """
     try:
-        # Use lsof to find process using the port
+        # Use lsof to find process using the port with command info
         result = subprocess.run(
             ['lsof', '-ti', f':{port}'],
             capture_output=True,
@@ -259,12 +259,31 @@ def kill_port_process(port: int):
         if result.returncode == 0 and result.stdout.strip():
             pids = result.stdout.strip().split('\n')
             for pid in pids:
-                if pid:
-                    logger.info(f"Killing existing process on port {port} (PID: {pid})")
-                    try:
-                        subprocess.run(['kill', '-9', pid], check=False)
-                    except Exception as e:
-                        logger.warning(f"Failed to kill PID {pid}: {e}")
+                if not pid:
+                    continue
+
+                # Verify process name before killing
+                ps_result = subprocess.run(
+                    ['ps', '-p', pid, '-o', 'comm='],
+                    capture_output=True,
+                    text=True
+                )
+
+                if ps_result.returncode == 0:
+                    process_name = ps_result.stdout.strip().lower()
+                    # Only kill if it's a Python/uvicorn process (likely our dashboard)
+                    if 'python' in process_name or 'uvicorn' in process_name:
+                        logger.info(f"Killing existing dashboard process on port {port} (PID: {pid}, Process: {process_name})")
+                        try:
+                            subprocess.run(['kill', '-9', pid], check=False)
+                        except Exception as e:
+                            logger.warning(f"Failed to kill PID {pid}: {e}")
+                    else:
+                        logger.warning(
+                            f"Port {port} is used by non-dashboard process '{process_name}' (PID: {pid}). "
+                            f"Not killing. Please free the port manually."
+                        )
+                        return  # Don't proceed if we can't free the port safely
 
             # Wait for port to be freed
             time.sleep(1)

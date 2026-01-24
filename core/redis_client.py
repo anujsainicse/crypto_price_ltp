@@ -83,7 +83,7 @@ class RedisClient:
         try:
             data = {
                 'ltp': str(price),
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'timestamp': str(int(datetime.utcnow().timestamp())),
                 'original_symbol': symbol
             }
 
@@ -137,7 +137,7 @@ class RedisClient:
             return False
 
     def get_all_keys(self, pattern: str = "*") -> list:
-        """Get all keys matching a pattern.
+        """Get all keys matching a pattern using SCAN (non-blocking).
 
         Args:
             pattern: Key pattern (e.g., 'bybit_*')
@@ -146,7 +146,14 @@ class RedisClient:
             List of matching keys
         """
         try:
-            return self._client.keys(pattern)
+            keys = []
+            cursor = 0
+            while True:
+                cursor, batch = self._client.scan(cursor=cursor, match=pattern, count=100)
+                keys.extend(batch)
+                if cursor == 0:
+                    break
+            return keys
         except Exception as e:
             self.logger.error(f"Failed to get keys for pattern {pattern}: {e}")
             return []

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import websockets
 from collections import deque
 from typing import Optional, Dict, Any
@@ -29,10 +30,11 @@ class BybitSpotService(BaseService):
         self.ws_url = config.get('websocket_url', 'wss://stream.bybit.com/v5/public/spot')
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
-        self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
         self.redis_prefix = config.get('redis_prefix', 'bybit_spot')
         self.redis_ttl = config.get('redis_ttl', 60)  # Default to 60s
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
+        self.backoff_delays = [5, 10, 20, 40, 60]
 
         # Orderbook configuration
         self.orderbook_enabled = config.get('orderbook_enabled', False)
@@ -81,22 +83,20 @@ class BybitSpotService(BaseService):
 
         reconnect_attempts = 0
 
-        while self.running and reconnect_attempts < self.max_reconnect_attempts:
+        while self.running:
             try:
                 await self._connect_and_stream()
                 reconnect_attempts = 0  # Reset on successful connection
             except Exception as e:
                 reconnect_attempts += 1
-                self.logger.error(
-                    f"Connection error (attempt {reconnect_attempts}/{self.max_reconnect_attempts}): {e}"
-                )
+                # Clear stale WebSocket reference
+                self.websocket = None
+                self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
 
-                if reconnect_attempts < self.max_reconnect_attempts:
-                    self.logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
-                    await asyncio.sleep(self.reconnect_interval)
-                else:
-                    self.logger.error("Max reconnection attempts reached")
-                    break
+                # Exponential backoff with 60s cap (never give up)
+                delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
+                self.logger.info(f"Reconnecting in {delay} seconds...")
+                await asyncio.sleep(delay)
 
     async def _connect_and_stream(self):
         """Connect to WebSocket and stream prices."""
@@ -107,7 +107,7 @@ class BybitSpotService(BaseService):
         async with websockets.connect(
             self.ws_url,
             ping_interval=20,
-            ping_timeout=10
+            ping_timeout=30  # Matches CLAUDE.md specification
         ) as websocket:
             self.websocket = websocket
             self.logger.info("WebSocket connected successfully")
@@ -191,6 +191,16 @@ class BybitSpotService(BaseService):
             if not symbol or not last_price:
                 return
 
+            # Validate price before float conversion
+            try:
+                price_float = float(last_price)
+                if not math.isfinite(price_float) or price_float <= 0:
+                    self.logger.warning(f"Invalid price for {symbol}: {last_price}")
+                    return
+            except (ValueError, TypeError):
+                self.logger.warning(f"Cannot convert price to float for {symbol}: {last_price}")
+                return
+
             # Extract base coin (e.g., BTC from BTCUSDT)
             base_coin = self._extract_base_coin(symbol)
 
@@ -198,7 +208,7 @@ class BybitSpotService(BaseService):
             redis_key = f"{self.redis_prefix}:{base_coin}"
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=float(last_price),
+                price=price_float,
                 symbol=symbol,
                 additional_data={
                     'volume_24h': ticker_data.get('volume24h', '0'),

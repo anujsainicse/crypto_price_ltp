@@ -121,7 +121,7 @@ class ControlInterface:
             Dict mapping service_id to status
         """
         pattern = f"{self.STATUS_PREFIX}:*"
-        keys = self.redis_client._client.keys(pattern)
+        keys = self.redis_client.get_all_keys(pattern)
 
         statuses = {}
         for key in keys:
@@ -192,7 +192,7 @@ class ControlInterface:
             Number of keys
         """
         pattern = f"{redis_prefix}:*"
-        keys = self.redis_client._client.keys(pattern)
+        keys = self.redis_client.get_all_keys(pattern)
         return len(keys)
 
     def get_all_data_counts(self) -> Dict[str, int]:
