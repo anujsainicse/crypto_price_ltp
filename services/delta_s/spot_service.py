@@ -232,6 +232,7 @@ class DeltaSpotService(BaseService):
                 # Check for crossed book
                 if spread < 0:
                     self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
+                    # Delta sends full snapshots, so no local state to clear. Just ignore.
                     return
 
                 mid_price = (best_bid + best_ask) / 2
