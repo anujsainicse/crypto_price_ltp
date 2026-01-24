@@ -277,8 +277,11 @@ class DeltaSpotService(BaseService):
                 # If buyer is taker -> Buy side initiated
                 side = 'Buy' if trade.get('buyer_role') == 'taker' else 'Sell'
 
-                price = float(trade.get('price', 0))
-                size = float(trade.get('size', 0))
+                try:
+                    price = float(trade.get('price', 0))
+                    size = float(trade.get('size', 0))
+                except (ValueError, TypeError):
+                    continue
 
                 if price <= 0 or size <= 0:
                     continue
@@ -315,8 +318,11 @@ class DeltaSpotService(BaseService):
             # Determine side
             side = 'Buy' if data.get('buyer_role') == 'taker' else 'Sell'
 
-            price = float(data.get('price', 0))
-            size = float(data.get('size', 0))
+            try:
+                price = float(data.get('price', 0))
+                size = float(data.get('size', 0))
+            except (ValueError, TypeError):
+                return
 
             if price <= 0 or size <= 0:
                 return
