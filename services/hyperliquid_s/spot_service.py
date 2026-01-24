@@ -301,48 +301,57 @@ class HyperLiquidSpotService(BaseService):
             if not trades_list:
                 return
 
-            # Check symbol from first trade
-            first_trade = trades_list[0]
-            symbol = first_trade.get('coin')
-            if not symbol or symbol not in self.symbols:
-                return
+            # Group trades by symbol to handle mixed batches
+            trades_by_symbol = {}
 
-            if symbol not in self._trades:
-                self._trades[symbol] = deque(maxlen=self.trades_limit)
-
-            # Process trades
             for trade in trades_list:
                 if not isinstance(trade, dict):
                     continue
-                try:
-                    px = float(trade.get('px', 0))
-                    sz = float(trade.get('sz', 0))
 
-                    # Hyperliquid: 'B' = Bid (Buy), 'A' = Ask (Sell)
-                    raw_side = trade.get('side')
-                    side = 'Buy' if raw_side == 'B' else 'Sell' if raw_side == 'A' else str(raw_side)
-
-                    if px > 0 and sz > 0 and math.isfinite(px) and math.isfinite(sz):
-                        self._trades[symbol].append({
-                            'p': px,
-                            'q': sz,
-                            's': side,
-                            't': trade.get('time'),
-                            'id': str(trade.get('hash', trade.get('time') or f"unknown_{int(time.time()*1000)}")) # Use hash if available, else time, else fallback
-                        })
-                except (ValueError, TypeError):
+                symbol = trade.get('coin')
+                if not symbol or symbol not in self.symbols:
                     continue
 
-            # Store in Redis
-            redis_key = f"{self.trades_redis_prefix}:{symbol}"
-            success = self.redis_client.set_trades_data(
-                key=redis_key,
-                trades=list(self._trades[symbol]),
-                original_symbol=symbol,
-                ttl=self.redis_ttl
-            )
-            if not success:
-                self.logger.warning(f"Failed to update trades in Redis for {symbol}")
+                if symbol not in trades_by_symbol:
+                    trades_by_symbol[symbol] = []
+
+                trades_by_symbol[symbol].append(trade)
+
+            # Process each symbol's trades
+            for symbol, symbol_trades in trades_by_symbol.items():
+                if symbol not in self._trades:
+                    self._trades[symbol] = deque(maxlen=self.trades_limit)
+
+                for trade in symbol_trades:
+                    try:
+                        px = float(trade.get('px', 0))
+                        sz = float(trade.get('sz', 0))
+
+                        # Hyperliquid: 'B' = Bid (Buy), 'A' = Ask (Sell)
+                        raw_side = trade.get('side')
+                        side = 'Buy' if raw_side == 'B' else 'Sell' if raw_side == 'A' else str(raw_side)
+
+                        if px > 0 and sz > 0 and math.isfinite(px) and math.isfinite(sz):
+                            self._trades[symbol].append({
+                                'p': px,
+                                'q': sz,
+                                's': side,
+                                't': trade.get('time'),
+                                'id': str(trade.get('hash', trade.get('time') or f"unknown_{int(time.time()*1000)}")) # Use hash if available, else time, else fallback
+                            })
+                    except (ValueError, TypeError):
+                        continue
+
+                # Store in Redis
+                redis_key = f"{self.trades_redis_prefix}:{symbol}"
+                success = self.redis_client.set_trades_data(
+                    key=redis_key,
+                    trades=list(self._trades[symbol]),
+                    original_symbol=symbol,
+                    ttl=self.redis_ttl
+                )
+                if not success:
+                    self.logger.warning(f"Failed to update trades in Redis for {symbol}")
 
         except Exception as e:
              self.logger.error(f"Error processing trades: {e}")
