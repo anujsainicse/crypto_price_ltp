@@ -11,7 +11,11 @@ from core.base_service import BaseService
 
 
 class CoinDCXFuturesLTPService(BaseService):
-    """Service for streaming CoinDCX futures LTP via Socket.IO."""
+    """Service for streaming CoinDCX futures LTP via Socket.IO.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{base_coin} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize CoinDCX Futures LTP Service.
@@ -24,6 +28,7 @@ class CoinDCXFuturesLTPService(BaseService):
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'coindcx_futures')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.sio: Optional[socketio.AsyncClient] = None
         self.ws_connected = False
         self.ping_task: Optional[asyncio.Task] = None
@@ -186,11 +191,12 @@ class CoinDCXFuturesLTPService(BaseService):
                 key=redis_key,
                 price=price_float,
                 symbol=symbol,
-                additional_data=additional_data
+                additional_data=additional_data,
+                ttl=self.redis_ttl
             )
 
             if success:
-                self.logger.debug(f"Updated {base_coin}: ${price}")
+                self.logger.debug(f"Updated {base_coin}: ${price_float}")
 
         except Exception as e:
             self.logger.error(f"Error processing trade message: {e}")

@@ -26,6 +26,7 @@ class CoinDCXFundingRateService(BaseService):
         self.update_interval = config.get('update_interval', 1800)  # 30 minutes
         self.api_timeout = config.get('api_timeout', 10)
         self.redis_prefix = config.get('redis_prefix', 'coindcx_futures')
+        self.redis_ttl = config.get('redis_ttl', 60)
 
     async def start(self):
         """Start the funding rate fetching service."""
@@ -123,7 +124,8 @@ class CoinDCXFundingRateService(BaseService):
                             **{k: v for k, v in existing_data.items()
                                if k not in ['ltp', 'timestamp', 'original_symbol']},
                             **additional_data
-                        }
+                        },
+                        ttl=self.redis_ttl
                     )
                 else:
                     # Create new entry with just funding rate (LTP will be updated by LTP service)
@@ -131,7 +133,8 @@ class CoinDCXFundingRateService(BaseService):
                         key=redis_key,
                         price=0.0,  # Placeholder until LTP updates
                         symbol=symbol,
-                        additional_data=additional_data
+                        additional_data=additional_data,
+                        ttl=self.redis_ttl
                     )
 
                 if success:

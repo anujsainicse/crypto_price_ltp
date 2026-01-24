@@ -12,7 +12,11 @@ from core.base_service import BaseService
 
 
 class DeltaOptionsService(BaseService):
-    """Service for streaming Delta Exchange options data via WebSocket."""
+    """Service for streaming Delta Exchange options data via WebSocket.
+
+    Redis Key Patterns:
+        Option: {redis_prefix}:{symbol} (Hash)
+    """
 
     # REST API endpoint for fetching tickers (using India API for more options)
     REST_API_URL = "https://api.india.delta.exchange/v2/tickers"
@@ -41,6 +45,7 @@ class DeltaOptionsService(BaseService):
         self.subscription_batch_delay = config.get('subscription_batch_delay', 0.5)
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'delta_options')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
@@ -462,12 +467,13 @@ class DeltaOptionsService(BaseService):
                 key=redis_key,
                 price=price_float,
                 symbol=symbol,
-                additional_data=additional_data
+                additional_data=additional_data,
+                ttl=self.redis_ttl
             )
 
             if success:
                 self.logger.info(
-                    f"[REDIS] Stored {symbol}: ${price} "
+                    f"[REDIS] Stored {symbol}: ${price_float} "
                     f"(Type: {option_info.get('type')}, Strike: {option_info.get('strike')}, "
                     f"IV: {additional_data.get('implied_volatility', 'N/A')})"
                 )

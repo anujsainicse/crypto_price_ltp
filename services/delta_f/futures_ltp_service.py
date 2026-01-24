@@ -11,7 +11,11 @@ from core.base_service import BaseService
 
 
 class DeltaFuturesLTPService(BaseService):
-    """Service for streaming Delta Exchange futures LTP via WebSocket."""
+    """Service for streaming Delta Exchange futures LTP via WebSocket.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{base_coin} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize Delta Futures LTP Service.
@@ -24,6 +28,7 @@ class DeltaFuturesLTPService(BaseService):
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'delta_futures')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
@@ -182,12 +187,13 @@ class DeltaFuturesLTPService(BaseService):
                 key=redis_key,
                 price=price_float,
                 symbol=ticker_data,
-                additional_data=additional_data
+                additional_data=additional_data,
+                ttl=self.redis_ttl
             )
 
             if success:
                 self.logger.debug(
-                    f"Updated {base_coin}: ${price} "
+                    f"Updated {base_coin}: ${price_float} "
                     f"(Mark: ${data.get('mark_price', 'N/A')})"
                 )
 

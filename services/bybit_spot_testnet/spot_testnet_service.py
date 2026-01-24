@@ -11,7 +11,11 @@ from core.base_service import BaseService
 
 
 class BybitSpotTestnetService(BaseService):
-    """Service for streaming Bybit Spot TestNet prices via WebSocket."""
+    """Service for streaming Bybit Spot TestNet prices via WebSocket.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{base_coin} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize Bybit Spot TestNet Service.
@@ -24,9 +28,25 @@ class BybitSpotTestnetService(BaseService):
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'bybit_spot_testnet')
+        self.redis_ttl = config.get('redis_ttl', 60)
+        self.quote_currencies = config.get('quote_currencies', ['USDT', 'USDC', 'BTC', 'ETH'])
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
+
+    def _extract_base_coin(self, symbol: str) -> str:
+        """Extract base coin from symbol by removing quote currency.
+
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+
+        Returns:
+            Base coin (e.g., 'BTC')
+        """
+        for quote in self.quote_currencies:
+            if symbol.endswith(quote):
+                return symbol[:-len(quote)]
+        return symbol
 
     async def start(self):
         """Start the Bybit Spot TestNet price streaming service."""
@@ -133,10 +153,9 @@ class BybitSpotTestnetService(BaseService):
             if not symbol or not last_price:
                 return
 
-            # Validate price before float conversion
             try:
-                price_float = float(last_price)
-                if not math.isfinite(price_float) or price_float <= 0:
+                price = float(last_price)
+                if not math.isfinite(price) or price <= 0:
                     self.logger.warning(f"Invalid price for {symbol}: {last_price}")
                     return
             except (ValueError, TypeError):
@@ -144,20 +163,21 @@ class BybitSpotTestnetService(BaseService):
                 return
 
             # Extract base coin (e.g., BTC from BTCUSDT)
-            base_coin = symbol.replace('USDT', '')
+            base_coin = self._extract_base_coin(symbol)
 
             # Store in Redis
             redis_key = f"{self.redis_prefix}:{base_coin}"
             success = self.redis_client.set_price_data(
                 key=redis_key,
-                price=price_float,
+                price=price,
                 symbol=symbol,
                 additional_data={
                     'volume_24h': ticker_data.get('volume24h', '0'),
                     'high_24h': ticker_data.get('highPrice24h', '0'),
                     'low_24h': ticker_data.get('lowPrice24h', '0'),
                     'price_change_percent': ticker_data.get('price24hPcnt', '0')
-                }
+                },
+                ttl=self.redis_ttl
             )
 
             if success:

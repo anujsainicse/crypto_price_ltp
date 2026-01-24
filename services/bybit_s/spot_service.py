@@ -12,7 +12,13 @@ from core.base_service import BaseService
 
 
 class BybitSpotService(BaseService):
-    """Service for streaming Bybit spot prices via WebSocket."""
+    """Service for streaming Bybit spot prices via WebSocket.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{base_coin} (Hash)
+        Orderbook: {orderbook_redis_prefix}:{base_coin} (Hash)
+        Trades: {trades_redis_prefix}:{base_coin} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize Bybit Spot Service.
@@ -25,6 +31,7 @@ class BybitSpotService(BaseService):
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'bybit_spot')
+        self.redis_ttl = config.get('redis_ttl', 60)  # Default to 60s
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
@@ -208,7 +215,8 @@ class BybitSpotService(BaseService):
                     'high_24h': ticker_data.get('highPrice24h', '0'),
                     'low_24h': ticker_data.get('lowPrice24h', '0'),
                     'price_change_percent': ticker_data.get('price24hPcnt', '0')
-                }
+                },
+                ttl=self.redis_ttl
             )
 
             if success:
@@ -316,7 +324,8 @@ class BybitSpotService(BaseService):
                 spread=spread,
                 mid_price=mid_price,
                 update_id=ob.get('update_id', 0),
-                original_symbol=symbol
+                original_symbol=symbol,
+                ttl=self.redis_ttl
             )
 
             if success:
@@ -342,11 +351,14 @@ class BybitSpotService(BaseService):
 
             for trade in trades_data:
                 symbol = trade.get('s', '')
-                price = trade.get('p', '')
-                quantity = trade.get('v', '')
+                try:
+                    price = float(trade.get('p', 0))
+                    quantity = float(trade.get('v', 0))
+                except (ValueError, TypeError):
+                    continue
 
                 # Validate required fields
-                if not symbol or not price or not quantity:
+                if not symbol or price <= 0 or quantity <= 0:
                     continue
 
                 # Extract base coin (e.g., BTC from BTCUSDT)
@@ -370,7 +382,8 @@ class BybitSpotService(BaseService):
                 success = self.redis_client.set_trades_data(
                     key=redis_key,
                     trades=trades_list,
-                    original_symbol=symbol
+                    original_symbol=symbol,
+                    ttl=self.redis_ttl
                 )
 
                 if success:

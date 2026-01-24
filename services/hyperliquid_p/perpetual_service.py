@@ -11,7 +11,11 @@ from core.base_service import BaseService
 
 
 class HyperLiquidPerpetualService(BaseService):
-    """Service for streaming HyperLiquid perpetual prices via WebSocket."""
+    """Service for streaming HyperLiquid perpetual prices via WebSocket.
+
+    Redis Key Patterns:
+        Ticker: {redis_prefix}:{symbol} (Hash)
+    """
 
     def __init__(self, config: dict):
         """Initialize HyperLiquid Perpetual Service.
@@ -24,6 +28,7 @@ class HyperLiquidPerpetualService(BaseService):
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'hyperliquid_perp')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
@@ -139,8 +144,8 @@ class HyperLiquidPerpetualService(BaseService):
 
                     # Validate price before float conversion
                     try:
-                        price_float = float(mid_price)
-                        if not math.isfinite(price_float) or price_float <= 0:
+                        price = float(mid_price)
+                        if not math.isfinite(price) or price <= 0:
                             self.logger.warning(f"Invalid price for {symbol}: {mid_price}")
                             continue
                     except (ValueError, TypeError):
@@ -151,16 +156,17 @@ class HyperLiquidPerpetualService(BaseService):
                     redis_key = f"{self.redis_prefix}:{symbol}"
                     success = self.redis_client.set_price_data(
                         key=redis_key,
-                        price=price_float,
+                        price=price,
                         symbol=symbol,
                         additional_data={
                             'price_type': 'mid',
                             'contract_type': 'perpetual'
-                        }
+                        },
+                        ttl=self.redis_ttl
                     )
 
                     if success:
-                        self.logger.debug(f"Updated {symbol}: ${mid_price}")
+                        self.logger.debug(f"Updated {symbol}: ${price}")
 
         except Exception as e:
             self.logger.error(f"Error processing mids update: {e}")
