@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import math
 from datetime import datetime
 from collections import deque
 from typing import Dict, Any, Optional, List
@@ -295,7 +296,7 @@ class DeltaSpotService(BaseService):
                 except (ValueError, TypeError):
                     continue
 
-                if price <= 0 or size <= 0:
+                if price <= 0 or size <= 0 or math.isnan(price) or math.isinf(price):
                     continue
 
                 self._trades[symbol].append({
@@ -336,7 +337,7 @@ class DeltaSpotService(BaseService):
             except (ValueError, TypeError):
                 return
 
-            if price <= 0 or size <= 0:
+            if price <= 0 or size <= 0 or math.isnan(price) or math.isinf(price):
                 return
 
             # Append new trade
