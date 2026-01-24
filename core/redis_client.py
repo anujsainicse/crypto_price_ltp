@@ -121,11 +121,43 @@ class RedisClient:
             self.logger.error(f"Failed to get price data for {key}: {e}")
             return None
 
-    def delete_key(self, key: str) -> bool:
-        """Delete a key from Redis.
+    def set_ex(self, key: str, seconds: int, value: str) -> bool:
+        """Set key with expiration.
 
         Args:
-            key: Redis key to delete
+            key: Redis key
+            seconds: Expiration in seconds
+            value: Value to set
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            return bool(self._client.setex(key, seconds, value))
+        except Exception as e:
+            self.logger.error(f"Failed to setex key {key}: {e}")
+            return False
+
+    def get(self, key: str) -> Optional[str]:
+        """Get value by key.
+
+        Args:
+            key: Redis key
+
+        Returns:
+            Value as string or None if not found
+        """
+        try:
+            return self._client.get(key)
+        except Exception as e:
+            self.logger.error(f"Failed to get key {key}: {e}")
+            return None
+
+    def delete_key(self, key: str) -> bool:
+        """Delete a key.
+
+        Args:
+            key: Redis key
 
         Returns:
             True if successful, False otherwise
