@@ -48,6 +48,7 @@ class DeltaSpotService(BaseService):
         self.trades_limit = config.get('trades_limit', 50)
 
         # In-memory state
+        self._orderbooks: Dict[str, Dict[str, Any]] = {}
         self._trades: Dict[str, deque] = {}
 
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
@@ -88,6 +89,7 @@ class DeltaSpotService(BaseService):
     async def _connect_and_stream(self):
         """Connect to WebSocket and stream data."""
         # Clear stale state on reconnection
+        self._orderbooks.clear()
         self._trades.clear()
 
         async with websockets.connect(
@@ -218,6 +220,13 @@ class DeltaSpotService(BaseService):
                 key=lambda x: x[0]
             )[:self.orderbook_depth]
 
+            # Update in-memory state
+            self._orderbooks[symbol] = {
+                'bids': bids,
+                'asks': asks,
+                'update_id': data.get('last_sequence_no', '')
+            }
+
             # Calculate spread and mid price
             best_bid = bids[0][0] if bids else 0
             best_ask = asks[0][0] if asks else 0
@@ -232,7 +241,9 @@ class DeltaSpotService(BaseService):
                 # Check for crossed book
                 if spread < 0:
                     self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
-                    # Delta sends full snapshots, so no local state to clear. Just ignore.
+                    # Clear corrupted state
+                    if symbol in self._orderbooks:
+                        del self._orderbooks[symbol]
                     return
 
                 mid_price = (best_bid + best_ask) / 2
