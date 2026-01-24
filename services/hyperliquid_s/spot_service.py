@@ -3,6 +3,7 @@
 import asyncio
 import json
 import math
+import time
 import websockets
 from typing import Optional, Dict, List, Any, Deque
 from datetime import datetime
@@ -29,7 +30,6 @@ class HyperLiquidSpotService(BaseService):
         super().__init__("HyperLiquid-Spot", config)
         self.ws_url = config.get('websocket_url', 'wss://api.hyperliquid.xyz/ws')
         self.symbols = config.get('symbols', [])
-        self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'hyperliquid_spot')
         self.redis_ttl = config.get('redis_ttl', 60)
 
@@ -67,9 +67,15 @@ class HyperLiquidSpotService(BaseService):
 
         while self.running:
             try:
+                connection_start_time = time.time()
                 await self._connect_and_stream()
-                reconnect_attempts = 0  # Reset on successful connection
+                reconnect_attempts = 0  # Reset on clean exit
             except Exception as e:
+                # Reset attempts if connection was stable for >30s
+                connection_duration = time.time() - connection_start_time
+                if connection_duration > 30:
+                    reconnect_attempts = 0
+
                 reconnect_attempts += 1
                 # Clear stale WebSocket reference
                 self.websocket = None
