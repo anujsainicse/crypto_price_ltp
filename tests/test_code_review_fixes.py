@@ -10,7 +10,7 @@ import sys
 import unittest
 
 # Project root
-PROJECT_ROOT = '/Users/anujsainicse/claude/crypto_price_ltp'
+PROJECT_ROOT = os.getcwd()
 
 
 def read_file(relative_path):
@@ -24,11 +24,15 @@ class TestTimestampFormat(unittest.TestCase):
     """Test Issue #1: Timestamp format should be Unix timestamp string."""
 
     def test_timestamp_is_unix_format(self):
-        """Verify timestamp uses int(datetime.utcnow().timestamp())."""
+        """Verify timestamp uses int(time.time()) or datetime.utcnow().timestamp()."""
         source = read_file('core/redis_client.py')
 
         # Should use int timestamp, not isoformat
-        self.assertIn("str(int(datetime.utcnow().timestamp()))", source)
+        # Allow either legacy or timezone-correct implementation
+        has_legacy = "str(int(datetime.utcnow().timestamp()))" in source
+        has_modern = "str(int(time.time()))" in source
+
+        self.assertTrue(has_legacy or has_modern, "Should use Unix timestamp (time.time() or datetime)")
         self.assertNotIn("isoformat()", source)
 
     def test_timestamp_not_iso_format(self):

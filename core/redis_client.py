@@ -2,8 +2,9 @@
 
 import json
 import redis
+import time
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config.settings import settings
 from core.logging import get_logger
@@ -83,7 +84,7 @@ class RedisClient:
         try:
             data = {
                 'ltp': str(price),
-                'timestamp': str(int(datetime.utcnow().timestamp())),
+                'timestamp': str(int(time.time())),
                 'original_symbol': symbol
             }
 
@@ -220,7 +221,7 @@ class RedisClient:
                 'spread': str(spread) if spread is not None else '',
                 'mid_price': str(mid_price) if mid_price is not None else '',
                 'update_id': str(update_id),
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'timestamp': str(int(time.time())),
                 'original_symbol': original_symbol
             }
 
@@ -283,7 +284,7 @@ class RedisClient:
             data = {
                 'trades': json.dumps(trades),
                 'count': str(len(trades)),
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'timestamp': str(int(time.time())),
                 'original_symbol': original_symbol
             }
 
