@@ -6,6 +6,7 @@ Following the same patterns as BybitSpotService for orderbook and trades streami
 import asyncio
 import json
 import socketio
+import time
 from collections import deque
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -30,8 +31,8 @@ class CoinDCXSpotService(BaseService):
         super().__init__("CoinDCX-Spot", config)
         self.ws_url = config.get('websocket_url', 'wss://stream.coindcx.com')
         self.symbols = config.get('symbols', [])
-        self.reconnect_interval = config.get('reconnect_interval', 5)
-        self.max_reconnect_attempts = config.get('max_reconnect_attempts', 10)
+        # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
+        self.backoff_delays = [5, 10, 20, 40, 60]
         self.redis_prefix = config.get('redis_prefix', 'coindcx_spot')
         self.redis_ttl = config.get('redis_ttl', 60)  # Default to 60s if not in config
         self.sio: Optional[socketio.AsyncClient] = None
@@ -111,25 +112,27 @@ class CoinDCXSpotService(BaseService):
 
         reconnect_attempts = 0
 
-        while self.running and reconnect_attempts < self.max_reconnect_attempts:
+        while self.running:
             try:
+                connection_start_time = time.time()
                 await self._connect_and_stream()
-                reconnect_attempts = 0  # Reset on successful connection
+                reconnect_attempts = 0  # Reset on clean exit
             except Exception as e:
+                # Reset attempts if connection was stable for >30s
+                connection_duration = time.time() - connection_start_time
+                if connection_duration > 30:
+                    reconnect_attempts = 0
+
                 reconnect_attempts += 1
-                self.logger.error(
-                    f"Connection error (attempt {reconnect_attempts}/{self.max_reconnect_attempts}): {e}"
-                )
+                self.logger.error(f"Connection error (attempt {reconnect_attempts}): {e}")
 
                 # Cleanup
                 await self._cleanup_connection()
 
-                if reconnect_attempts < self.max_reconnect_attempts:
-                    self.logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
-                    await asyncio.sleep(self.reconnect_interval)
-                else:
-                    self.logger.error("Max reconnection attempts reached")
-                    break
+                # Exponential backoff with 60s cap (never give up)
+                delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
+                self.logger.info(f"Reconnecting in {delay} seconds...")
+                await asyncio.sleep(delay)
 
     async def _connect_and_stream(self):
         """Connect to Socket.IO and stream data."""
