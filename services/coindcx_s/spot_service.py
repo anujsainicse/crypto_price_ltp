@@ -110,20 +110,21 @@ class CoinDCXSpotService(BaseService):
         self.logger.info(f"Starting Socket.IO connection to {self.ws_url}")
         self.logger.info(f"Monitoring symbols: {', '.join(self.symbols)}")
 
-        reconnect_attempts = 0
+        reconnect_attempts = 1
 
         while self.running:
             try:
                 connection_start_time = time.time()
                 await self._connect_and_stream()
-                reconnect_attempts = 0  # Reset on clean exit
+                reconnect_attempts = 1  # Reset on clean exit
             except Exception as e:
                 # Reset attempts if connection was stable for >30s
                 connection_duration = time.time() - connection_start_time
                 if connection_duration > 30:
-                    reconnect_attempts = 0
+                    reconnect_attempts = 1
+                else:
+                    reconnect_attempts += 1
 
-                reconnect_attempts += 1
                 self.logger.error(f"Connection error (attempt {reconnect_attempts}): {e}")
 
                 # Cleanup

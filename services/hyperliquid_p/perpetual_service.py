@@ -48,20 +48,21 @@ class HyperLiquidPerpetualService(BaseService):
         self.logger.info(f"Starting WebSocket connection to {self.ws_url}")
         self.logger.info(f"Monitoring symbols: {', '.join(self.symbols)}")
 
-        reconnect_attempts = 0
+        reconnect_attempts = 1
 
         while self.running:
             try:
                 connection_start_time = time.time()
                 await self._connect_and_stream()
-                reconnect_attempts = 0  # Reset on successful connection
+                reconnect_attempts = 1  # Reset on successful connection
             except Exception as e:
                 # Reset attempts if connection was stable for >30s
                 connection_duration = time.time() - connection_start_time
                 if connection_duration > 30:
-                    reconnect_attempts = 0
+                    reconnect_attempts = 1
+                else:
+                    reconnect_attempts += 1
 
-                reconnect_attempts += 1
                 # Clear stale WebSocket reference
                 self.websocket = None
                 self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")

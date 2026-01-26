@@ -1,67 +1,54 @@
-"""Bybit Spot Price Service."""
+"""Bybit Futures Orderbook Service."""
 
 import asyncio
 import json
-import math
 import time
 import websockets
-from collections import deque
 from typing import Optional, Dict, Any
-from datetime import datetime
 
 from core.base_service import BaseService
 
 
-class BybitSpotService(BaseService):
-    """Service for streaming Bybit spot prices via WebSocket.
+class BybitFuturesOrderbookService(BaseService):
+    """Service for streaming Bybit futures orderbook data via WebSocket.
 
-    Redis Key Patterns:
-        Ticker: {redis_prefix}:{base_coin} (Hash)
-        Orderbook: {orderbook_redis_prefix}:{base_coin} (Hash)
-        Trades: {trades_redis_prefix}:{base_coin} (Hash)
+    Redis Key Pattern:
+        Orderbook: {redis_prefix}:{base_coin} (Hash)
     """
 
     def __init__(self, config: dict):
-        """Initialize Bybit Spot Service.
+        """Initialize Bybit Futures Orderbook Service.
 
         Args:
             config: Service configuration dictionary
         """
-        super().__init__("Bybit-Spot", config)
-        self.ws_url = config.get('websocket_url', 'wss://stream.bybit.com/v5/public/spot')
+        super().__init__("Bybit-Futures-Orderbook", config)
+        self.ws_url = config.get('websocket_url', 'wss://stream.bybit.com/v5/public/linear')
         self.symbols = config.get('symbols', [])
         self.reconnect_interval = config.get('reconnect_interval', 5)
-        self.redis_prefix = config.get('redis_prefix', 'bybit_spot')
-        self.redis_ttl = config.get('redis_ttl', 60)  # Default to 60s
+        self.redis_prefix = config.get('redis_prefix', 'bybit_futures_ob')
+        self.redis_ttl = config.get('redis_ttl', 60)
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
-        # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
+        # Exponential backoff delays: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
 
         # Orderbook configuration
-        self.orderbook_enabled = config.get('orderbook_enabled', False)
         self.orderbook_depth = config.get('orderbook_depth', 50)
-        self.orderbook_redis_prefix = config.get('orderbook_redis_prefix', 'bybit_spot_ob')
-
-        # Trades configuration
-        self.trades_enabled = config.get('trades_enabled', False)
-        self.trades_limit = config.get('trades_limit', 50)
-        self.trades_redis_prefix = config.get('trades_redis_prefix', 'bybit_spot_trades')
 
         # Quote currencies for symbol parsing (order matters - longest first)
-        self.quote_currencies = config.get('quote_currencies', ['USDT', 'USDC', 'BTC', 'ETH'])
+        self.quote_currencies = config.get('quote_currencies', ['USDT', 'USDC'])
 
-        # In-memory state for orderbooks and trades
+        # In-memory state for orderbooks
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
-        self._trades: Dict[str, deque] = {}
 
     def _extract_base_coin(self, symbol: str) -> str:
         """Extract base coin from symbol by removing quote currency.
 
         Args:
-            symbol: Trading pair symbol (e.g., 'BTCUSDT', 'ETHBTC')
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
 
         Returns:
-            Base coin (e.g., 'BTC', 'ETH')
+            Base coin (e.g., 'BTC')
         """
         for quote in self.quote_currencies:
             if symbol.endswith(quote):
@@ -69,7 +56,7 @@ class BybitSpotService(BaseService):
         return symbol
 
     async def start(self):
-        """Start the Bybit spot price streaming service."""
+        """Start the Bybit futures orderbook streaming service."""
         if not self.is_enabled():
             self.logger.info("Service is disabled in configuration")
             return
@@ -107,20 +94,19 @@ class BybitSpotService(BaseService):
                 await asyncio.sleep(delay)
 
     async def _connect_and_stream(self):
-        """Connect to WebSocket and stream prices."""
+        """Connect to WebSocket and stream orderbook data."""
         # Clear stale state on reconnection to prevent memory leaks and stale data
         self._orderbooks.clear()
-        self._trades.clear()
 
         async with websockets.connect(
             self.ws_url,
             ping_interval=20,
-            ping_timeout=30  # Matches CLAUDE.md specification
+            ping_timeout=30
         ) as websocket:
             self.websocket = websocket
             self.logger.info("WebSocket connected successfully")
 
-            # Subscribe to all channels
+            # Subscribe to orderbook channels
             await self._subscribe_to_channels()
 
             # Listen for messages
@@ -134,27 +120,20 @@ class BybitSpotService(BaseService):
                     self.logger.error(f"Error handling message: {e}")
 
     async def _subscribe_to_channels(self):
-        """Subscribe to ticker, orderbook, and trades updates for configured symbols."""
+        """Subscribe to orderbook updates for configured symbols."""
         if not self.websocket:
             return
 
-        for symbol in self.symbols:
-            # Build channel list for this symbol
-            channels = [f"tickers.{symbol}"]
+        # Build channel list for all symbols
+        channels = [f"orderbook.{self.orderbook_depth}.{symbol}" for symbol in self.symbols]
 
-            if self.orderbook_enabled:
-                channels.append(f"orderbook.{self.orderbook_depth}.{symbol}")
-
-            if self.trades_enabled:
-                channels.append(f"publicTrade.{symbol}")
-
-            # Subscribe to all channels for this symbol
-            subscribe_msg = {
-                "op": "subscribe",
-                "args": channels
-            }
-            await self.websocket.send(json.dumps(subscribe_msg))
-            self.logger.info(f"Subscribed to channels for {symbol}: {channels}")
+        # Subscribe to all channels
+        subscribe_msg = {
+            "op": "subscribe",
+            "args": channels
+        }
+        await self.websocket.send(json.dumps(subscribe_msg))
+        self.logger.info(f"Subscribed to orderbook channels: {channels}")
 
     async def _handle_message(self, message: str):
         """Handle incoming WebSocket message.
@@ -172,69 +151,14 @@ class BybitSpotService(BaseService):
 
             topic = data.get('topic', '')
 
-            # Route to appropriate handler based on topic prefix
-            if topic.startswith('tickers.'):
-                await self._process_ticker_update(data)
-            elif topic.startswith('orderbook.'):
+            # Route to orderbook handler based on topic prefix
+            if topic.startswith('orderbook.'):
                 await self._process_orderbook_update(data)
-            elif topic.startswith('publicTrade.'):
-                await self._process_trade_update(data)
 
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse message: {e}")
         except Exception as e:
             self.logger.error(f"Error processing message: {e}")
-
-    async def _process_ticker_update(self, data: dict):
-        """Process ticker update and store in Redis.
-
-        Args:
-            data: Ticker update data
-        """
-        try:
-            ticker_data = data.get('data', {})
-            symbol = ticker_data.get('symbol', '')
-            last_price = ticker_data.get('lastPrice')
-
-            if not symbol or not last_price:
-                return
-
-            # Validate price before float conversion
-            try:
-                price_float = float(last_price)
-                if not math.isfinite(price_float) or price_float <= 0:
-                    self.logger.warning(f"Invalid price for {symbol}: {last_price}")
-                    return
-            except (ValueError, TypeError):
-                self.logger.warning(f"Cannot convert price to float for {symbol}: {last_price}")
-                return
-
-            # Extract base coin (e.g., BTC from BTCUSDT)
-            base_coin = self._extract_base_coin(symbol)
-
-            # Store in Redis
-            redis_key = f"{self.redis_prefix}:{base_coin}"
-            success = self.redis_client.set_price_data(
-                key=redis_key,
-                price=price_float,
-                symbol=symbol,
-                additional_data={
-                    'volume_24h': ticker_data.get('volume24h', '0'),
-                    'high_24h': ticker_data.get('highPrice24h', '0'),
-                    'low_24h': ticker_data.get('lowPrice24h', '0'),
-                    'price_change_percent': ticker_data.get('price24hPcnt', '0')
-                },
-                ttl=self.redis_ttl
-            )
-
-            if success:
-                self.logger.debug(
-                    f"Updated {base_coin}: ${last_price} "
-                    f"(24h change: {ticker_data.get('price24hPcnt', '0')}%)"
-                )
-
-        except Exception as e:
-            self.logger.error(f"Error processing ticker update: {e}")
 
     async def _process_orderbook_update(self, data: dict):
         """Process orderbook update and store in Redis.
@@ -266,7 +190,7 @@ class BybitSpotService(BaseService):
                     self.logger.warning(f"Received delta before snapshot for {symbol}")
                     return
 
-                # Apply bid updates (validate entry length to prevent IndexError/ValueError)
+                # Apply bid updates (validate entry length to prevent IndexError)
                 for entry in ob_data.get('b', []):
                     if len(entry) < 2:
                         continue
@@ -276,7 +200,7 @@ class BybitSpotService(BaseService):
                     else:
                         self._orderbooks[symbol]['bids'][price] = qty
 
-                # Apply ask updates (validate entry length to prevent IndexError/ValueError)
+                # Apply ask updates (validate entry length to prevent IndexError)
                 for entry in ob_data.get('a', []):
                     if len(entry) < 2:
                         continue
@@ -324,7 +248,7 @@ class BybitSpotService(BaseService):
                 mid_price = (best_bid + best_ask) / 2
 
             # Store in Redis using public API
-            redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+            redis_key = f"{self.redis_prefix}:{base_coin}"
             success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=sorted_bids,
@@ -345,64 +269,6 @@ class BybitSpotService(BaseService):
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")
 
-    async def _process_trade_update(self, data: dict):
-        """Process trade update and store in Redis.
-
-        Args:
-            data: Trade update data
-        """
-        try:
-            trades_data = data.get('data', [])
-
-            if not trades_data:
-                return
-
-            for trade in trades_data:
-                symbol = trade.get('s', '')
-                try:
-                    price = float(trade.get('p', 0))
-                    quantity = float(trade.get('v', 0))
-                except (ValueError, TypeError):
-                    continue
-
-                # Validate required fields
-                if not symbol or price <= 0 or quantity <= 0:
-                    continue
-
-                # Extract base coin (e.g., BTC from BTCUSDT)
-                base_coin = self._extract_base_coin(symbol)
-
-                # Initialize deque for this symbol if not exists (atomic)
-                self._trades.setdefault(symbol, deque(maxlen=self.trades_limit))
-
-                # Append trade with compact field names
-                self._trades[symbol].append({
-                    'p': price,                   # price
-                    'q': quantity,                # quantity (v is volume in Bybit)
-                    's': trade.get('S', ''),      # side (Buy/Sell)
-                    't': trade.get('T', 0),       # timestamp
-                    'id': trade.get('i', '')      # trade id
-                })
-
-                # Store in Redis using public API
-                redis_key = f"{self.trades_redis_prefix}:{base_coin}"
-                trades_list = list(self._trades[symbol])
-                success = self.redis_client.set_trades_data(
-                    key=redis_key,
-                    trades=trades_list,
-                    original_symbol=symbol,
-                    ttl=self.redis_ttl
-                )
-
-                if success:
-                    self.logger.debug(
-                        f"Updated trades {base_coin}: {len(trades_list)} trades, "
-                        f"latest: {trade.get('p')} @ {trade.get('S')}"
-                    )
-
-        except Exception as e:
-            self.logger.error(f"Error processing trade update: {e}")
-
     async def stop(self):
         """Stop the service."""
         self.running = False
@@ -414,7 +280,7 @@ class BybitSpotService(BaseService):
             except Exception as e:
                 self.logger.error(f"Error closing WebSocket: {e}")
 
-        self.logger.info("Bybit Spot Service stopped")
+        self.logger.info("Bybit Futures Orderbook Service stopped")
 
 
 async def main():
@@ -422,9 +288,9 @@ async def main():
     from config.settings import Settings
 
     config = Settings.load_exchange_config('bybit')
-    service_config = config.get('services', {}).get('spot', {})
+    service_config = config.get('services', {}).get('futures_orderbook', {})
 
-    service = BybitSpotService(service_config)
+    service = BybitFuturesOrderbookService(service_config)
     await service.run()
 
 

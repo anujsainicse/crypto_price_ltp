@@ -75,8 +75,9 @@ class HyperLiquidSpotService(BaseService):
                 connection_duration = time.time() - connection_start_time
                 if connection_duration > 30:
                     reconnect_attempts = 0
+                else:
+                    reconnect_attempts += 1
 
-                reconnect_attempts += 1
                 # Clear stale WebSocket reference
                 self.websocket = None
                 self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
