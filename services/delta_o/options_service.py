@@ -196,13 +196,13 @@ class DeltaOptionsService(BaseService):
         self.logger.info(f"Starting WebSocket connection to {self.ws_url}")
         self.logger.info(f"Monitoring {len(self.active_symbols)} options: {', '.join(self.active_symbols[:5])}...")
 
-        reconnect_attempts = 1
+        reconnect_attempts = 0
 
         while self.running:
             try:
                 connection_start_time = time.time()
                 await self._connect_and_stream()
-                reconnect_attempts = 1  # Reset on successful connection
+                reconnect_attempts = 0  # Reset on successful connection
             except Exception as e:
                 # Reset attempts if connection was stable for >30s
                 connection_duration = time.time() - connection_start_time

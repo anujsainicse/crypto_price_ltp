@@ -74,7 +74,7 @@ class HyperLiquidSpotService(BaseService):
                 # Reset attempts if connection was stable for >30s
                 connection_duration = time.time() - connection_start_time
                 if connection_duration > 30:
-                    reconnect_attempts = 0
+                    reconnect_attempts = 1
                 else:
                     reconnect_attempts += 1
 

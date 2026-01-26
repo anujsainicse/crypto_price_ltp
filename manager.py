@@ -19,6 +19,7 @@ from services.delta_o import DeltaOptionsService
 from services.hyperliquid_s import HyperLiquidSpotService
 from services.hyperliquid_p import HyperLiquidPerpetualService
 from services.bybit_spot_testnet import BybitSpotTestnetService
+from services.bybit_f import BybitFuturesOrderbookService
 
 
 class ServiceManager:
@@ -104,6 +105,18 @@ class ServiceManager:
                     'config': spot_config
                 }
                 self.logger.info("✓ Bybit Spot Service loaded")
+
+            # Bybit Futures Orderbook Service
+            futures_ob_config = services_config.get('futures_orderbook', {})
+            if futures_ob_config.get('enabled', False):
+                service = BybitFuturesOrderbookService(futures_ob_config)
+                self.services.append(service)
+                self.service_registry['bybit_futures_orderbook'] = {
+                    'service': service,
+                    'task': None,
+                    'config': futures_ob_config
+                }
+                self.logger.info("✓ Bybit Futures Orderbook Service loaded")
 
         elif exchange == 'coindcx':
             # CoinDCX Spot Service
