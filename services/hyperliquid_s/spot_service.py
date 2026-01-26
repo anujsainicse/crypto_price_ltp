@@ -274,10 +274,11 @@ class HyperLiquidSpotService(BaseService):
                 mid_price = (best_bid + best_ask) / 2
 
             # Update state
+            timestamp = content.get('time') or int(time.time() * 1000)
             self._orderbooks[symbol] = {
                 'bids': bids,
                 'asks': asks,
-                'timestamp': content.get('time')
+                'timestamp': timestamp
             }
 
             # Store in Redis
@@ -288,7 +289,7 @@ class HyperLiquidSpotService(BaseService):
                 asks=asks,
                 spread=spread,
                 mid_price=mid_price,
-                update_id=str(content.get('time')),
+                update_id=str(timestamp),
                 original_symbol=symbol,
                 ttl=self.redis_ttl
             )
@@ -341,7 +342,7 @@ class HyperLiquidSpotService(BaseService):
                                 'p': px,
                                 'q': sz,
                                 's': side,
-                                't': trade.get('time'),
+                                't': trade.get('time') or int(time.time() * 1000),
                                 'id': str(trade.get('hash', trade.get('time') or f"unknown_{int(time.time()*1000)}")) # Use hash if available, else time, else fallback
                             })
                     except (ValueError, TypeError):
