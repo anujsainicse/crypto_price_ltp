@@ -53,7 +53,6 @@ def test_timestamp_format_standalone():
     print("✓ Timestamp is correct Unix format")
     print(f"✓ Stored and retrieved: {stored_timestamp}")
     print()
-    return True
 
 
 def test_redis_scan_standalone():
@@ -96,7 +95,6 @@ def test_redis_scan_standalone():
     print("✓ SCAN correctly retrieves all keys")
     print("✓ Keys are returned as strings")
     print()
-    return True
 
 
 def test_aoe_integration_format():
@@ -134,14 +132,13 @@ def test_aoe_integration_format():
         assert age_seconds < 60, "Timestamp should be recent"
     except ValueError as e:
         print(f"✗ Failed to parse timestamp as int: {e}")
-        return False
+        raise e
 
     # Cleanup
     client.delete(test_key)
 
     print("✓ Timestamp format compatible with AOE/Monitoring")
     print()
-    return True
 
 
 def run_all_tests():
