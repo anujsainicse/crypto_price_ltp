@@ -233,6 +233,10 @@ class DeltaSpotService(BaseService):
                 key=lambda x: x[0]
             )[:self.orderbook_depth]
 
+            # Validate empty orderbook
+            if not bids or not asks:
+                return
+
             # Update in-memory state
             self._orderbooks[symbol] = {
                 'bids': bids,

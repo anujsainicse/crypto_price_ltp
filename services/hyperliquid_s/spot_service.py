@@ -256,6 +256,10 @@ class HyperLiquidSpotService(BaseService):
             # Sort Asks (Asc)
             asks = sorted(parse_levels(raw_asks), key=lambda x: x[0])[:self.orderbook_depth]
 
+            # Validate empty orderbook
+            if not bids or not asks:
+                return
+
             # Validate spread before updating state
             best_bid = bids[0][0] if bids else 0
             best_ask = asks[0][0] if asks else 0

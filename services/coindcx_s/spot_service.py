@@ -336,6 +336,10 @@ class CoinDCXSpotService(BaseService):
             if not ob:
                 return
 
+            # Validate empty orderbook data
+            if not ob.get('bids') or not ob.get('asks'):
+                return
+
             # Sort bids descending, asks ascending (limit to configured depth)
             sorted_bids = sorted(
                 [[p, q] for p, q in ob.get('bids', {}).items()],

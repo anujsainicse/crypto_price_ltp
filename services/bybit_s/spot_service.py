@@ -305,6 +305,10 @@ class BybitSpotService(BaseService):
                 key=lambda x: float(x[0])
             )[:self.orderbook_depth]
 
+            # Validate empty orderbook
+            if not sorted_bids or not sorted_asks:
+                return
+
             # Calculate spread and mid_price
             spread = None
             mid_price = None
