@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import time
 import websockets
 from typing import Optional, Dict, Any
@@ -169,6 +170,12 @@ class BybitFuturesOrderbookService(BaseService):
         try:
             update_type = data.get('type', '')  # 'snapshot' or 'delta'
             ob_data = data.get('data', {})
+
+            # Validate data is a dict
+            if not isinstance(ob_data, dict):
+                self.logger.warning(f"Invalid orderbook data type: {type(ob_data)}")
+                return
+
             symbol = ob_data.get('s', '')
 
             if not symbol:
@@ -182,7 +189,8 @@ class BybitFuturesOrderbookService(BaseService):
                 self._orderbooks[symbol] = {
                     'bids': {item[0]: item[1] for item in ob_data.get('b', []) if len(item) >= 2},
                     'asks': {item[0]: item[1] for item in ob_data.get('a', []) if len(item) >= 2},
-                    'update_id': ob_data.get('u', 0)
+                    'update_id': ob_data.get('u', 0),
+                    'timestamp': time.time()
                 }
             elif update_type == 'delta':
                 # Incremental update
@@ -195,22 +203,35 @@ class BybitFuturesOrderbookService(BaseService):
                     if len(entry) < 2:
                         continue
                     price, qty = entry[0], entry[1]
-                    if float(qty) == 0:
-                        self._orderbooks[symbol]['bids'].pop(price, None)
-                    else:
-                        self._orderbooks[symbol]['bids'][price] = qty
+                    try:
+                        qty_float = float(qty)
+                        if not math.isfinite(qty_float):
+                            continue
+                        if qty_float == 0:
+                            self._orderbooks[symbol]['bids'].pop(price, None)
+                        else:
+                            self._orderbooks[symbol]['bids'][price] = qty
+                    except (ValueError, TypeError):
+                        continue
 
                 # Apply ask updates (validate entry length to prevent IndexError)
                 for entry in ob_data.get('a', []):
                     if len(entry) < 2:
                         continue
                     price, qty = entry[0], entry[1]
-                    if float(qty) == 0:
-                        self._orderbooks[symbol]['asks'].pop(price, None)
-                    else:
-                        self._orderbooks[symbol]['asks'][price] = qty
+                    try:
+                        qty_float = float(qty)
+                        if not math.isfinite(qty_float):
+                            continue
+                        if qty_float == 0:
+                            self._orderbooks[symbol]['asks'].pop(price, None)
+                        else:
+                            self._orderbooks[symbol]['asks'][price] = qty
+                    except (ValueError, TypeError):
+                        continue
 
                 self._orderbooks[symbol]['update_id'] = ob_data.get('u', 0)
+                self._orderbooks[symbol]['timestamp'] = time.time()
 
             # Prepare sorted orderbook for Redis storage
             ob = self._orderbooks.get(symbol, {})
@@ -241,15 +262,26 @@ class BybitFuturesOrderbookService(BaseService):
                 if len(sorted_bids[0]) < 1 or len(sorted_asks[0]) < 1:
                     self.logger.warning(f"Malformed orderbook entry for {symbol}")
                     return
-                best_bid = float(sorted_bids[0][0])
-                best_ask = float(sorted_asks[0][0])
-                spread = best_ask - best_bid
-                # Skip storing if spread is invalid (crossed book)
-                if spread < 0:
-                    self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
-                    del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
+
+                try:
+                    best_bid = float(sorted_bids[0][0])
+                    best_ask = float(sorted_asks[0][0])
+
+                    # Validate float values are finite
+                    if not math.isfinite(best_bid) or not math.isfinite(best_ask):
+                        self.logger.warning(f"Invalid price values for {symbol}: bid={best_bid}, ask={best_ask}")
+                        return
+
+                    spread = best_ask - best_bid
+                    # Skip storing if spread is invalid (crossed book)
+                    if spread < 0:
+                        self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
+                        del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
+                        return
+                    mid_price = (best_bid + best_ask) / 2
+                except (ValueError, TypeError) as e:
+                    self.logger.warning(f"Float conversion error for {symbol}: {e}")
                     return
-                mid_price = (best_bid + best_ask) / 2
 
             # Store in Redis using public API
             redis_key = f"{self.redis_prefix}:{base_coin}"
@@ -269,6 +301,8 @@ class BybitFuturesOrderbookService(BaseService):
                     f"Updated orderbook {base_coin}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
                     f"spread: {spread}"
                 )
+            else:
+                self.logger.warning(f"Failed to write orderbook to Redis for {base_coin}")
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")
