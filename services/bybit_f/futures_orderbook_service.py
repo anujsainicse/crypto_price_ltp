@@ -277,6 +277,10 @@ class BybitFuturesOrderbookService(BaseService):
                     if spread < 0:
                         self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
                         del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
+
+                        # Ensure stale data is removed from Redis immediately
+                        redis_key = f"{self.redis_prefix}:{base_coin}"
+                        self.redis_client.delete_key(redis_key)
                         return
                     mid_price = (best_bid + best_ask) / 2
                 except (ValueError, TypeError) as e:

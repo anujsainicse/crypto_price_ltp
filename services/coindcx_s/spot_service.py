@@ -385,6 +385,10 @@ class CoinDCXSpotService(BaseService):
                         )
                         del self._orderbooks[symbol]
                         self._initialized_symbols.discard(symbol)
+
+                        # Ensure stale data is removed from Redis immediately
+                        redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+                        self.redis_client.delete_key(redis_key)
                         return
 
                     mid_price = (best_bid + best_ask) / 2

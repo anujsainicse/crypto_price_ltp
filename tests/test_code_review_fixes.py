@@ -329,6 +329,31 @@ class TestGitignore(unittest.TestCase):
             self.assertIn(entry, content, f".gitignore should contain {entry}")
 
 
+class TestCrossedOrderbookCleanup(unittest.TestCase):
+    """Test Issue #2: Stale data cleanup on crossed orderbook."""
+
+    def test_delete_key_on_crossed_book(self):
+        """Verify redis key is deleted when orderbook is crossed."""
+        services = [
+            'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
+            'services/hyperliquid_s/spot_service.py',
+        ]
+
+        for service_path in services:
+            source = read_file(service_path)
+
+            # Should have delete_key call
+            self.assertIn('delete_key', source, f"{service_path} should call delete_key")
+
+            # Should be deleting the redis key
+            # We look for the pattern loosely since variable names might vary slightly
+            # generally: self.redis_client.delete_key(redis_key)
+            self.assertIn('.delete_key(redis_key)', source, f"{service_path} should delete redis_key")
+
+
 class TestIntegration(unittest.TestCase):
     """Integration tests to verify files compile correctly."""
 
