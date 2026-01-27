@@ -328,7 +328,7 @@ class HyperLiquidSpotService(BaseService):
                 if symbol not in self._trades:
                     self._trades[symbol] = deque(maxlen=self.trades_limit)
 
-                for trade in symbol_trades:
+                for i, trade in enumerate(symbol_trades):
                     try:
                         px = float(trade.get('px', 0))
                         sz = float(trade.get('sz', 0))
@@ -338,12 +338,19 @@ class HyperLiquidSpotService(BaseService):
                         side = 'Buy' if raw_side == 'B' else 'Sell' if raw_side == 'A' else str(raw_side)
 
                         if px > 0 and sz > 0 and math.isfinite(px) and math.isfinite(sz):
+                            # Generate robust fallback ID with counter to prevent duplicates in high-frequency batches
+                            current_ts = int(time.time() * 1000)
+                            fallback_id = f"unknown_{current_ts}_{i}"
+
+                            # ID priority: Hash -> Time -> Fallback+Counter
+                            trade_id = str(trade.get('hash', trade.get('time') or fallback_id))
+
                             self._trades[symbol].append({
                                 'p': px,
                                 'q': sz,
                                 's': side,
-                                't': trade.get('time') or int(time.time() * 1000),
-                                'id': str(trade.get('hash', trade.get('time') or f"unknown_{int(time.time()*1000)}")) # Use hash if available, else time, else fallback
+                                't': trade.get('time') or current_ts,
+                                'id': trade_id
                             })
                     except (ValueError, TypeError):
                         continue

@@ -39,5 +39,5 @@ class TestHyperLiquidTradeID:
         trades = kwargs['trades']
 
         # Verify ID generation
-        assert trades[0]['id'] == "unknown_1700000000000"
+        assert trades[0]['id'] == "unknown_1700000000000_0"
         assert trades[0]['id'] != "None"
