@@ -7,6 +7,7 @@ import asyncio
 import json
 import socketio
 import time
+import math
 from collections import deque
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -304,17 +305,29 @@ class CoinDCXSpotService(BaseService):
                 else:
                     # Apply bid updates (zero qty = remove)
                     for price, qty in parsed.get('bids', {}).items():
-                        if float(qty) == 0:
-                            self._orderbooks[normalized_symbol]['bids'].pop(price, None)
-                        else:
-                            self._orderbooks[normalized_symbol]['bids'][price] = qty
+                        try:
+                            qty_float = float(qty)
+                            if not math.isfinite(qty_float):
+                                continue
+                            if qty_float == 0:
+                                self._orderbooks[normalized_symbol]['bids'].pop(price, None)
+                            else:
+                                self._orderbooks[normalized_symbol]['bids'][price] = qty
+                        except (ValueError, TypeError):
+                            continue
 
                     # Apply ask updates
                     for price, qty in parsed.get('asks', {}).items():
-                        if float(qty) == 0:
-                            self._orderbooks[normalized_symbol]['asks'].pop(price, None)
-                        else:
-                            self._orderbooks[normalized_symbol]['asks'][price] = qty
+                        try:
+                            qty_float = float(qty)
+                            if not math.isfinite(qty_float):
+                                continue
+                            if qty_float == 0:
+                                self._orderbooks[normalized_symbol]['asks'].pop(price, None)
+                            else:
+                                self._orderbooks[normalized_symbol]['asks'][price] = qty
+                        except (ValueError, TypeError):
+                            continue
 
                     self._orderbooks[normalized_symbol]['update_id'] = parsed.get('vs', 0)
 
@@ -356,20 +369,27 @@ class CoinDCXSpotService(BaseService):
             spread = None
             mid_price = None
             if sorted_bids and sorted_asks:
-                best_bid = float(sorted_bids[0][0])
-                best_ask = float(sorted_asks[0][0])
-                spread = best_ask - best_bid
+                try:
+                    best_bid = float(sorted_bids[0][0])
+                    best_ask = float(sorted_asks[0][0])
 
-                # Skip storing if spread is invalid (crossed book)
-                if spread < 0:
-                    self.logger.warning(
-                        f"Invalid spread for {symbol}: {spread} (crossed book). Clearing state."
-                    )
-                    del self._orderbooks[symbol]
-                    self._initialized_symbols.discard(symbol)
+                    if not math.isfinite(best_bid) or not math.isfinite(best_ask):
+                        return
+
+                    spread = best_ask - best_bid
+
+                    # Skip storing if spread is invalid (crossed book)
+                    if spread < 0:
+                        self.logger.warning(
+                            f"Invalid spread for {symbol}: {spread} (crossed book). Clearing state."
+                        )
+                        del self._orderbooks[symbol]
+                        self._initialized_symbols.discard(symbol)
+                        return
+
+                    mid_price = (best_bid + best_ask) / 2
+                except (ValueError, TypeError):
                     return
-
-                mid_price = (best_bid + best_ask) / 2
 
             # Store in Redis using public API
             redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
@@ -412,6 +432,9 @@ class CoinDCXSpotService(BaseService):
             try:
                 price = float(parsed.get('p', 0))
                 quantity = float(parsed.get('q', 0))
+
+                if not math.isfinite(price) or not math.isfinite(quantity):
+                    return
             except (ValueError, TypeError):
                 return
 

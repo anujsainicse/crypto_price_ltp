@@ -245,6 +245,10 @@ class BybitSpotService(BaseService):
         try:
             update_type = data.get('type', '')  # 'snapshot' or 'delta'
             ob_data = data.get('data', {})
+
+            if not isinstance(ob_data, dict):
+                return
+
             symbol = ob_data.get('s', '')
 
             if not symbol:
@@ -271,20 +275,32 @@ class BybitSpotService(BaseService):
                     if len(entry) < 2:
                         continue
                     price, qty = entry[0], entry[1]
-                    if float(qty) == 0:
-                        self._orderbooks[symbol]['bids'].pop(price, None)
-                    else:
-                        self._orderbooks[symbol]['bids'][price] = qty
+                    try:
+                        qty_float = float(qty)
+                        if not math.isfinite(qty_float):
+                            continue
+                        if qty_float == 0:
+                            self._orderbooks[symbol]['bids'].pop(price, None)
+                        else:
+                            self._orderbooks[symbol]['bids'][price] = qty
+                    except (ValueError, TypeError):
+                        continue
 
                 # Apply ask updates (validate entry length to prevent IndexError/ValueError)
                 for entry in ob_data.get('a', []):
                     if len(entry) < 2:
                         continue
                     price, qty = entry[0], entry[1]
-                    if float(qty) == 0:
-                        self._orderbooks[symbol]['asks'].pop(price, None)
-                    else:
-                        self._orderbooks[symbol]['asks'][price] = qty
+                    try:
+                        qty_float = float(qty)
+                        if not math.isfinite(qty_float):
+                            continue
+                        if qty_float == 0:
+                            self._orderbooks[symbol]['asks'].pop(price, None)
+                        else:
+                            self._orderbooks[symbol]['asks'][price] = qty
+                    except (ValueError, TypeError):
+                        continue
 
                 self._orderbooks[symbol]['update_id'] = ob_data.get('u', 0)
 
@@ -317,15 +333,22 @@ class BybitSpotService(BaseService):
                 if len(sorted_bids[0]) < 1 or len(sorted_asks[0]) < 1:
                     self.logger.warning(f"Malformed orderbook entry for {symbol}")
                     return
-                best_bid = float(sorted_bids[0][0])
-                best_ask = float(sorted_asks[0][0])
-                spread = best_ask - best_bid
-                # Skip storing if spread is invalid (crossed book)
-                if spread < 0:
-                    self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
-                    del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
+                try:
+                    best_bid = float(sorted_bids[0][0])
+                    best_ask = float(sorted_asks[0][0])
+
+                    if not math.isfinite(best_bid) or not math.isfinite(best_ask):
+                        return
+
+                    spread = best_ask - best_bid
+                    # Skip storing if spread is invalid (crossed book)
+                    if spread < 0:
+                        self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
+                        del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
+                        return
+                    mid_price = (best_bid + best_ask) / 2
+                except (ValueError, TypeError):
                     return
-                mid_price = (best_bid + best_ask) / 2
 
             # Store in Redis using public API
             redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"

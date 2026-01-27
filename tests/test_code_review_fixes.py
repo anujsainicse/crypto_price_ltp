@@ -185,6 +185,8 @@ class TestInputValidation(unittest.TestCase):
         """Verify math module is imported for validation."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',
@@ -201,6 +203,8 @@ class TestInputValidation(unittest.TestCase):
         """Verify math.isfinite is used for price validation."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',

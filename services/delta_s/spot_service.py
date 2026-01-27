@@ -216,7 +216,7 @@ class DeltaSpotService(BaseService):
                     try:
                         price = float(order.get('limit_price', 0))
                         size = float(order.get('size', 0))
-                        if price > 0 and size > 0:
+                        if price > 0 and size > 0 and math.isfinite(price) and math.isfinite(size):
                             parsed.append([price, size])
                     except (ValueError, TypeError):
                         continue
@@ -315,7 +315,7 @@ class DeltaSpotService(BaseService):
                 except (ValueError, TypeError):
                     continue
 
-                if price <= 0 or size <= 0 or math.isnan(price) or math.isinf(price):
+                if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                     continue
 
                 self._trades[symbol].append({
@@ -356,7 +356,7 @@ class DeltaSpotService(BaseService):
             except (ValueError, TypeError):
                 return
 
-            if price <= 0 or size <= 0 or math.isnan(price) or math.isinf(price):
+            if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                 return
 
             # Append new trade
