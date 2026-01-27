@@ -86,7 +86,7 @@ class DeltaSpotService(BaseService):
 
                 self.logger.error(f"Connection error (attempt {reconnect_attempts}): {e}")
 
-                # Cleanup
+                # Clear stale WebSocket reference
                 if self.websocket:
                     try:
                         await self.websocket.close()
@@ -108,7 +108,7 @@ class DeltaSpotService(BaseService):
         async with websockets.connect(
             self.ws_url,
             ping_interval=20,
-            ping_timeout=10
+            ping_timeout=30
         ) as websocket:
             self.websocket = websocket
             self.logger.info("WebSocket connected successfully")
