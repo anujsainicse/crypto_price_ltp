@@ -84,7 +84,7 @@ class DeltaSpotService(BaseService):
                 else:
                     reconnect_attempts += 1
 
-                self.logger.error(f"Connection error (attempt {reconnect_attempts}): {e}")
+                self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
 
                 # Clear stale WebSocket reference
                 if self.websocket:
