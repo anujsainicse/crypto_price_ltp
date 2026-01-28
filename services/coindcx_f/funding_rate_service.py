@@ -2,6 +2,7 @@
 
 import asyncio
 import aiohttp
+import math
 from typing import Optional, Dict
 from datetime import datetime
 
@@ -95,6 +96,17 @@ class CoinDCXFundingRateService(BaseService):
                 estimated_rate = symbol_data.get('efr')
 
                 if current_rate is None:
+                    continue
+
+                # Validate floats
+                try:
+                    fr_float = float(current_rate)
+                    efr_float = float(estimated_rate or 0)
+                    if not math.isfinite(fr_float) or not math.isfinite(efr_float):
+                        self.logger.warning(f"Invalid funding rate for {symbol}: fr={current_rate}, efr={estimated_rate}")
+                        continue
+                except (ValueError, TypeError):
+                    self.logger.warning(f"Malformed funding rate for {symbol}: fr={current_rate}")
                     continue
 
                 # Extract base coin (e.g., BTC from B-BTC_USDT)

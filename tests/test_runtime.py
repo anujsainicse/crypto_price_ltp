@@ -55,7 +55,6 @@ def test_timestamp_format():
     print("✓ Timestamp is correct Unix format")
     print(f"✓ Timestamp value: {timestamp} (current: {current_time})")
     print()
-    return True
 
 
 def test_redis_scan():
@@ -75,7 +74,7 @@ def test_redis_scan():
     # Create multiple test keys
     test_prefix = "test:scan_test"
     for i in range(10):
-        client._client.set(f"{test_prefix}:{i}", f"value{i}")
+        client.set(f"{test_prefix}:{i}", f"value{i}")
 
     # Get all keys using our method
     keys = client.get_all_keys(f"{test_prefix}:*")
@@ -92,12 +91,11 @@ def test_redis_scan():
 
     # Cleanup
     for i in range(10):
-        client._client.delete(f"{test_prefix}:{i}")
+        client.delete_key(f"{test_prefix}:{i}")
 
     print("✓ get_all_keys correctly retrieves all keys")
     print("✓ Keys are returned as strings")
     print()
-    return True
 
 
 def test_price_validation():
@@ -135,7 +133,6 @@ def test_price_validation():
         print(f"  ✓ '{value}' is correctly rejected")
 
     print()
-    return True
 
 
 def test_exponential_backoff():
@@ -163,7 +160,6 @@ def test_exponential_backoff():
 
     print("\n✓ Exponential backoff correctly implemented")
     print()
-    return True
 
 
 def run_all_tests():
@@ -184,8 +180,8 @@ def run_all_tests():
 
     for name, test_func in tests:
         try:
-            if test_func():
-                passed += 1
+            test_func()
+            passed += 1
         except Exception as e:
             print(f"✗ {name} FAILED: {e}")
             failed += 1

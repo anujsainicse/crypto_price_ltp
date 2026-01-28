@@ -3,6 +3,7 @@
 import json
 import asyncio
 import math
+import time
 from datetime import datetime
 from collections import deque
 from typing import Dict, Any, Optional, List
@@ -31,7 +32,6 @@ class DeltaSpotService(BaseService):
         # Connection settings
         self.ws_url = config.get('websocket_url', 'wss://socket.india.delta.exchange')
         self.symbols = config.get('symbols', [])
-        self.reconnect_interval = config.get('reconnect_interval', 5)
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
 
@@ -73,11 +73,26 @@ class DeltaSpotService(BaseService):
 
         while self.running:
             try:
+                connection_start_time = time.time()
                 await self._connect_and_stream()
-                reconnect_attempts = 0  # Reset on successful connection
+                reconnect_attempts = 0  # Reset on clean exit
             except Exception as e:
-                reconnect_attempts += 1
+                # Reset attempts if connection was stable for >30s
+                connection_duration = time.time() - connection_start_time
+                if connection_duration > 30:
+                    reconnect_attempts = 1
+                else:
+                    reconnect_attempts += 1
+
                 self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
+
+                # Clear stale WebSocket reference
+                if self.websocket:
+                    try:
+                        await self.websocket.close()
+                    except Exception:
+                        pass
+                self.websocket = None
 
                 # Exponential backoff with 60s cap (never give up)
                 delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
@@ -93,7 +108,7 @@ class DeltaSpotService(BaseService):
         async with websockets.connect(
             self.ws_url,
             ping_interval=20,
-            ping_timeout=10
+            ping_timeout=30
         ) as websocket:
             self.websocket = websocket
             self.logger.info("WebSocket connected successfully")
@@ -201,7 +216,7 @@ class DeltaSpotService(BaseService):
                     try:
                         price = float(order.get('limit_price', 0))
                         size = float(order.get('size', 0))
-                        if price > 0 and size > 0:
+                        if price > 0 and size > 0 and math.isfinite(price) and math.isfinite(size):
                             parsed.append([price, size])
                     except (ValueError, TypeError):
                         continue
@@ -217,6 +232,10 @@ class DeltaSpotService(BaseService):
                 parse_orders(sell_orders),
                 key=lambda x: x[0]
             )[:self.orderbook_depth]
+
+            # Validate empty orderbook
+            if not bids or not asks:
+                return
 
             # Update in-memory state
             self._orderbooks[symbol] = {
@@ -242,6 +261,10 @@ class DeltaSpotService(BaseService):
                     # Clear corrupted state
                     if symbol in self._orderbooks:
                         del self._orderbooks[symbol]
+
+                    # Ensure stale data is removed from Redis immediately
+                    redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+                    self.redis_client.delete_key(redis_key)
                     return
 
                 mid_price = (best_bid + best_ask) / 2
@@ -249,7 +272,7 @@ class DeltaSpotService(BaseService):
             # Store in Redis hash
             redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
 
-            self.redis_client.set_orderbook_data(
+            success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=bids,
                 asks=asks,
@@ -260,10 +283,13 @@ class DeltaSpotService(BaseService):
                 ttl=self.redis_ttl
             )
 
-            self.logger.debug(
-                f"Updated {base_coin} order book: spread=${spread:.2f}, "
-                f"mid=${mid_price:.2f}, {len(bids)} bids, {len(asks)} asks"
-            )
+            if success:
+                self.logger.debug(
+                    f"Updated {base_coin} order book: spread=${spread:.2f}, "
+                    f"mid=${mid_price:.2f}, {len(bids)} bids, {len(asks)} asks"
+                )
+            else:
+                self.logger.warning(f"Failed to update orderbook in Redis for {base_coin}")
 
         except Exception as e:
             self.logger.error(f"Error processing order book update: {e}")
@@ -293,7 +319,7 @@ class DeltaSpotService(BaseService):
                 except (ValueError, TypeError):
                     continue
 
-                if price <= 0 or size <= 0 or math.isnan(price) or math.isinf(price):
+                if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                     continue
 
                 self._trades[symbol].append({
@@ -334,7 +360,7 @@ class DeltaSpotService(BaseService):
             except (ValueError, TypeError):
                 return
 
-            if price <= 0 or size <= 0 or math.isnan(price) or math.isinf(price):
+            if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                 return
 
             # Append new trade
@@ -361,12 +387,15 @@ class DeltaSpotService(BaseService):
         # Convert deque to list for storage
         trades_list = list(self._trades[symbol])
 
-        self.redis_client.set_trades_data(
+        success = self.redis_client.set_trades_data(
             key=redis_key,
             trades=trades_list,
             original_symbol=symbol,
             ttl=self.redis_ttl
         )
+
+        if not success:
+            self.logger.warning(f"Failed to update trades in Redis for {base_coin}")
 
     def _extract_base_coin(self, symbol: str) -> str:
         """Extract base coin from Delta symbol (e.g., BTCUSD -> BTC)."""

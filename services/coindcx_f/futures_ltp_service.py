@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import socketio
+import time
 from typing import Optional
 from datetime import datetime
 
@@ -53,10 +54,17 @@ class CoinDCXFuturesLTPService(BaseService):
 
         while self.running:
             try:
+                connection_start_time = time.time()
                 await self._connect_and_stream()
                 reconnect_attempts = 0  # Reset on successful connection
             except Exception as e:
-                reconnect_attempts += 1
+                # Reset attempts if connection was stable for >30s
+                connection_duration = time.time() - connection_start_time
+                if connection_duration > 30:
+                    reconnect_attempts = 1
+                else:
+                    reconnect_attempts += 1
+
                 self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
 
                 # Cleanup

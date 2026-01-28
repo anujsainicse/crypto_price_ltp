@@ -32,7 +32,7 @@ class ControlInterface:
             'action': 'start',
             'timestamp': datetime.utcnow().isoformat()
         }
-        return self.redis_client._client.setex(key, 60, json.dumps(command))  # Expires in 60s
+        return self.redis_client.set_ex(key, 60, json.dumps(command))  # Expires in 60s
 
     def send_stop_command(self, service_id: str) -> bool:
         """Send stop command for a service.
@@ -48,7 +48,7 @@ class ControlInterface:
             'action': 'stop',
             'timestamp': datetime.utcnow().isoformat()
         }
-        return self.redis_client._client.setex(key, 60, json.dumps(command))  # Expires in 60s
+        return self.redis_client.set_ex(key, 60, json.dumps(command))  # Expires in 60s
 
     def get_control_command(self, service_id: str) -> Optional[Dict]:
         """Get pending control command for a service.
@@ -60,7 +60,7 @@ class ControlInterface:
             Command dict or None
         """
         key = f"{self.CONTROL_PREFIX}:{service_id}"
-        data = self.redis_client._client.get(key)
+        data = self.redis_client.get(key)
         if data:
             return json.loads(data)
         return None
@@ -75,7 +75,7 @@ class ControlInterface:
             Success status
         """
         key = f"{self.CONTROL_PREFIX}:{service_id}"
-        return bool(self.redis_client._client.delete(key))
+        return bool(self.redis_client.delete_key(key))
 
     # ==================== Status Management ====================
 
@@ -97,7 +97,7 @@ class ControlInterface:
             'last_update': datetime.utcnow().isoformat(),
             'details': details or {}
         }
-        return self.redis_client._client.setex(key, 300, json.dumps(status_data))  # Expires in 5 min
+        return self.redis_client.set_ex(key, 300, json.dumps(status_data))  # Expires in 5 min
 
     def get_service_status(self, service_id: str) -> Optional[Dict]:
         """Get service status.
@@ -109,7 +109,7 @@ class ControlInterface:
             Status dict or None
         """
         key = f"{self.STATUS_PREFIX}:{service_id}"
-        data = self.redis_client._client.get(key)
+        data = self.redis_client.get(key)
         if data:
             return json.loads(data)
         return None
@@ -132,7 +132,7 @@ class ControlInterface:
                 key_str = key
 
             service_id = key_str.split(':', 2)[2]
-            data = self.redis_client._client.get(key)
+            data = self.redis_client.get(key)
             if data:
                 statuses[service_id] = json.loads(data)
 
@@ -155,7 +155,7 @@ class ControlInterface:
             'stats': stats,
             'last_update': datetime.utcnow().isoformat()
         }
-        return self.redis_client._client.setex(key, 300, json.dumps(stats_data))  # Expires in 5 min
+        return self.redis_client.set_ex(key, 300, json.dumps(stats_data))  # Expires in 5 min
 
     def get_service_stats(self, service_id: str) -> Optional[Dict]:
         """Get service statistics.
@@ -167,7 +167,7 @@ class ControlInterface:
             Stats dict or None
         """
         key = f"{self.STATS_PREFIX}:{service_id}"
-        data = self.redis_client._client.get(key)
+        data = self.redis_client.get(key)
         if data:
             return json.loads(data)
         return None

@@ -34,6 +34,25 @@ bybit:
       trades_limit: 50
       trades_redis_prefix: "bybit_spot_trades"
 
+    futures_orderbook:
+      enabled: true
+      auto_start: true
+      websocket_url: "wss://stream.bybit.com/v5/public/linear"
+      symbols:
+        - "BTCUSDT"
+        - "ETHUSDT"
+        - "SOLUSDT"
+        - "BNBUSDT"
+        - "DOGEUSDT"
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+      redis_prefix: "bybit_futures_ob"
+      redis_ttl: 60
+      quote_currencies:
+        - "USDT"
+        - "USDC"
+      orderbook_depth: 50
+
 coindcx:
   name: "CoinDCX"
   enabled: true
@@ -177,6 +196,14 @@ hyperliquid:
       max_reconnect_attempts: 10
       redis_prefix: "hyperliquid_spot"
       redis_ttl: 60
+      # Orderbook configuration
+      orderbook_enabled: true
+      orderbook_depth: 50
+      orderbook_redis_prefix: "hyperliquid_spot_ob"
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "hyperliquid_spot_trades"
 
     perpetual:
       enabled: true

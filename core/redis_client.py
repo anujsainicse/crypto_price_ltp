@@ -2,8 +2,9 @@
 
 import json
 import redis
+import time
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config.settings import settings
 from core.logging import get_logger
@@ -83,7 +84,7 @@ class RedisClient:
         try:
             data = {
                 'ltp': str(price),
-                'timestamp': str(int(datetime.utcnow().timestamp())),
+                'timestamp': str(int(time.time())),
                 'original_symbol': symbol
             }
 
@@ -120,11 +121,43 @@ class RedisClient:
             self.logger.error(f"Failed to get price data for {key}: {e}")
             return None
 
-    def delete_key(self, key: str) -> bool:
-        """Delete a key from Redis.
+    def set_ex(self, key: str, seconds: int, value: str) -> bool:
+        """Set key with expiration.
 
         Args:
-            key: Redis key to delete
+            key: Redis key
+            seconds: Expiration in seconds
+            value: Value to set
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            return bool(self._client.setex(key, seconds, value))
+        except Exception as e:
+            self.logger.error(f"Failed to setex key {key}: {e}")
+            return False
+
+    def get(self, key: str) -> Optional[str]:
+        """Get value by key.
+
+        Args:
+            key: Redis key
+
+        Returns:
+            Value as string or None if not found
+        """
+        try:
+            return self._client.get(key)
+        except Exception as e:
+            self.logger.error(f"Failed to get key {key}: {e}")
+            return None
+
+    def delete_key(self, key: str) -> bool:
+        """Delete a key.
+
+        Args:
+            key: Redis key
 
         Returns:
             True if successful, False otherwise
@@ -134,6 +167,22 @@ class RedisClient:
             return True
         except Exception as e:
             self.logger.error(f"Failed to delete key {key}: {e}")
+            return False
+
+    def set(self, key: str, value: str) -> bool:
+        """Set key value.
+
+        Args:
+            key: Redis key
+            value: Value to set
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            return bool(self._client.set(key, value))
+        except Exception as e:
+            self.logger.error(f"Failed to set key {key}: {e}")
             return False
 
     def get_all_keys(self, pattern: str = "*") -> list:
@@ -220,7 +269,7 @@ class RedisClient:
                 'spread': str(spread) if spread is not None else '',
                 'mid_price': str(mid_price) if mid_price is not None else '',
                 'update_id': str(update_id),
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'timestamp': str(int(time.time())),
                 'original_symbol': original_symbol
             }
 
@@ -283,7 +332,7 @@ class RedisClient:
             data = {
                 'trades': json.dumps(trades),
                 'count': str(len(trades)),
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'timestamp': str(int(time.time())),
                 'original_symbol': original_symbol
             }
 

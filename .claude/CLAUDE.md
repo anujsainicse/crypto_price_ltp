@@ -69,7 +69,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Delta** | `delta_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **Delta** | `delta_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP |
 | **Delta** | `delta_options` | Options | BTC, ETH (all strikes) | LTP + Greeks |
-| **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP |
+| **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_perp` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP |
 
 **Total Services**: 10
@@ -430,9 +430,9 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 | Feature | Bybit Spot | CoinDCX Spot | Delta Spot | HyperLiquid |
 |---------|------------|--------------|------------|-------------|
 | LTP | ✅ | ✅ | ✅ | ✅ |
-| Orderbook | ✅ (50 levels) | ✅ (20 levels) | ✅ (50 levels) | ❌ |
-| Trades | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) | ❌ |
-| Spread/Mid | ✅ | ✅ | ✅ | ❌ |
+| Orderbook | ✅ (50 levels) | ✅ (20 levels) | ✅ (50 levels) | ✅ (50 levels) |
+| Trades | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) |
+| Spread/Mid | ✅ | ✅ | ✅ | ✅ |
 | TTL | 60s | 60s | 60s | 60s |
 | Auto-Reconnect | ✅ | ✅ | ✅ | ✅ |
 

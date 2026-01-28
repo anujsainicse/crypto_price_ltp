@@ -10,7 +10,7 @@ import sys
 import unittest
 
 # Project root
-PROJECT_ROOT = '/Users/anujsainicse/claude/crypto_price_ltp'
+PROJECT_ROOT = os.getcwd()
 
 
 def read_file(relative_path):
@@ -24,11 +24,15 @@ class TestTimestampFormat(unittest.TestCase):
     """Test Issue #1: Timestamp format should be Unix timestamp string."""
 
     def test_timestamp_is_unix_format(self):
-        """Verify timestamp uses int(datetime.utcnow().timestamp())."""
+        """Verify timestamp uses int(time.time()) or datetime.utcnow().timestamp()."""
         source = read_file('core/redis_client.py')
 
         # Should use int timestamp, not isoformat
-        self.assertIn("str(int(datetime.utcnow().timestamp()))", source)
+        # Allow either legacy or timezone-correct implementation
+        has_legacy = "str(int(datetime.utcnow().timestamp()))" in source
+        has_modern = "str(int(time.time()))" in source
+
+        self.assertTrue(has_legacy or has_modern, "Should use Unix timestamp (time.time() or datetime)")
         self.assertNotIn("isoformat()", source)
 
     def test_timestamp_not_iso_format(self):
@@ -75,8 +79,11 @@ class TestExponentialBackoff(unittest.TestCase):
         """Verify backoff_delays are defined in all services."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/coindcx_f/futures_ltp_service.py',
@@ -93,7 +100,10 @@ class TestExponentialBackoff(unittest.TestCase):
         """Verify backoff is used in reconnection logic."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
             'services/hyperliquid_s/spot_service.py',
         ]
 
@@ -141,8 +151,10 @@ class TestWebSocketCleanup(unittest.TestCase):
         """Verify self.websocket = None is in exception handling."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
@@ -181,7 +193,11 @@ class TestInputValidation(unittest.TestCase):
         """Verify math module is imported for validation."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
+            'services/coindcx_f/funding_rate_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
@@ -197,7 +213,11 @@ class TestInputValidation(unittest.TestCase):
         """Verify math.isfinite is used for price validation."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
+            'services/coindcx_f/funding_rate_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
@@ -247,7 +267,9 @@ class TestPingTimeout(unittest.TestCase):
         """Verify ping_timeout=30 is used."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
@@ -261,7 +283,9 @@ class TestPingTimeout(unittest.TestCase):
         """Verify ping_timeout is not 10."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
@@ -305,6 +329,31 @@ class TestGitignore(unittest.TestCase):
             self.assertIn(entry, content, f".gitignore should contain {entry}")
 
 
+class TestCrossedOrderbookCleanup(unittest.TestCase):
+    """Test Issue #2: Stale data cleanup on crossed orderbook."""
+
+    def test_delete_key_on_crossed_book(self):
+        """Verify redis key is deleted when orderbook is crossed."""
+        services = [
+            'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_s/spot_service.py',
+            'services/delta_s/spot_service.py',
+            'services/coindcx_s/spot_service.py',
+            'services/hyperliquid_s/spot_service.py',
+        ]
+
+        for service_path in services:
+            source = read_file(service_path)
+
+            # Should have delete_key call
+            self.assertIn('delete_key', source, f"{service_path} should call delete_key")
+
+            # Should be deleting the redis key
+            # We look for the pattern loosely since variable names might vary slightly
+            # generally: self.redis_client.delete_key(redis_key)
+            self.assertIn('.delete_key(redis_key)', source, f"{service_path} should delete redis_key")
+
+
 class TestIntegration(unittest.TestCase):
     """Integration tests to verify files compile correctly."""
 
@@ -322,9 +371,11 @@ class TestIntegration(unittest.TestCase):
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
             'services/coindcx_f/futures_ltp_service.py',
+            'services/coindcx_f/funding_rate_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
+            'services/bybit_f/futures_orderbook_service.py',
         ]
 
         for file_path in files:
