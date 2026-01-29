@@ -67,7 +67,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **CoinDCX** | `coindcx_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **CoinDCX** | `coindcx_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Funding Rate |
 | **Delta** | `delta_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
-| **Delta** | `delta_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP |
+| **Delta** | `delta_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **Delta** | `delta_options` | Options | BTC, ETH (all strikes) | LTP + Greeks |
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_perp` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP |
@@ -100,11 +100,13 @@ hyperliquid_perp:ETH
 bybit_spot_ob:BTC
 coindcx_spot_ob:ETH
 delta_spot_ob:SOL
+delta_futures_ob:BTC
 
 # Trades Keys
 bybit_spot_trades:BTC
 coindcx_spot_trades:ETH
 delta_spot_trades:SOL
+delta_futures_trades:BTC
 ```
 
 ### Hash Fields
@@ -292,6 +294,19 @@ delta:
       orderbook_depth: 50
       trades_enabled: true
       trades_limit: 50
+    futures_ltp:
+      enabled: true
+      websocket_url: "wss://socket.india.delta.exchange"
+      symbols: ["BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD", "DOGEUSD"]
+      redis_prefix: "delta_futures"
+      redis_ttl: 60
+      quote_currencies: ["USD", "USDT"]
+      orderbook_enabled: true
+      orderbook_depth: 50
+      orderbook_redis_prefix: "delta_futures_ob"
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "delta_futures_trades"
 
 hyperliquid:
   name: "HyperLiquid"
@@ -359,7 +374,7 @@ python -m services.bybit_spot
 | CoinDCX Futures | `services/coindcx_f/futures_ltp_service.py` | LTP |
 | CoinDCX Funding | `services/coindcx_f/funding_rate_service.py` | Funding Rates |
 | Delta Spot | `services/delta_s/spot_service.py` | LTP + Orderbook + Trades |
-| Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP |
+| Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP + Orderbook + Trades |
 | Delta Options | `services/delta_o/options_service.py` | LTP + Greeks |
 | HyperLiquid Spot | `services/hyperliquid_s/spot_service.py` | LTP |
 | HyperLiquid Perp | `services/hyperliquid_p/perpetual_service.py` | LTP |
@@ -427,8 +442,9 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 
 ## Service Features Matrix
 
-| Feature | Bybit Spot | CoinDCX Spot | Delta Spot | HyperLiquid |
-|---------|------------|--------------|------------|-------------|
+### Spot Services
+| Feature | Bybit Spot | CoinDCX Spot | Delta Spot | HyperLiquid Spot |
+|---------|------------|--------------|------------|------------------|
 | LTP | ✅ | ✅ | ✅ | ✅ |
 | Orderbook | ✅ (50 levels) | ✅ (20 levels) | ✅ (50 levels) | ✅ (50 levels) |
 | Trades | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) |
@@ -436,8 +452,18 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 | TTL | 60s | 60s | 60s | 60s |
 | Auto-Reconnect | ✅ | ✅ | ✅ | ✅ |
 
+### Futures/Perpetual Services
+| Feature | Delta Futures | CoinDCX Futures | HyperLiquid Perp |
+|---------|---------------|-----------------|------------------|
+| LTP | ✅ | ✅ | ✅ |
+| Orderbook | ✅ (50 levels) | ❌ | ❌ |
+| Trades | ✅ (50 trades) | ❌ | ❌ |
+| Funding Rate | ✅ | ✅ | ❌ |
+| TTL | 60s | 60s | 60s |
+| Auto-Reconnect | ✅ | ✅ | ✅ |
+
 ---
 
 **Last Updated**: January 2026
-**Version**: 2.0.0 (System-wide hardening + Spot services)
+**Version**: 2.1.0 (Delta Futures Orderbook + Trades support)
 **Part of**: Scalper Bot Ecosystem
