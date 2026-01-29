@@ -308,7 +308,7 @@ class DeltaSpotService(BaseService):
             self._trades[symbol] = deque(maxlen=self.trades_limit)
 
             # Add trades from snapshot
-            for trade in trades_data:
+            for i, trade in enumerate(trades_data):
                 # Delta sends buyer_role/seller_role.
                 # If buyer is taker -> Buy side initiated
                 side = 'Buy' if trade.get('buyer_role') == 'taker' else 'Sell'
@@ -322,12 +322,20 @@ class DeltaSpotService(BaseService):
                 if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                     continue
 
+                # Generate robust fallback ID with counter to prevent duplicates
+                current_ts = int(time.time() * 1000)
+                fallback_id = f"unknown_{current_ts}_{i}"
+
+                # ID priority: Exchange ID -> Timestamp -> Fallback+Counter
+                timestamp = trade.get('timestamp')
+                trade_id = str(trade.get('id') or trade.get('trade_id') or timestamp or fallback_id)
+
                 self._trades[symbol].append({
                     'p': price,
                     'q': size,
                     's': side,
-                    't': trade.get('timestamp', 0),
-                    'id': str(trade.get('timestamp', ''))  # Use timestamp as ID
+                    't': timestamp if timestamp is not None else current_ts,
+                    'id': trade_id
                 })
 
             # Store in Redis
@@ -363,13 +371,21 @@ class DeltaSpotService(BaseService):
             if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                 return
 
+            # Generate robust fallback ID
+            current_ts = int(time.time() * 1000)
+            fallback_id = f"unknown_{current_ts}_0"
+
+            # ID priority: Exchange ID -> Timestamp -> Fallback
+            timestamp = data.get('timestamp')
+            trade_id = str(data.get('id') or data.get('trade_id') or timestamp or fallback_id)
+
             # Append new trade
             self._trades[symbol].append({
                 'p': price,
                 'q': size,
                 's': side,
-                't': data.get('timestamp', 0),
-                'id': str(data.get('timestamp', ''))
+                't': timestamp if timestamp is not None else current_ts,
+                'id': trade_id
             })
 
             # Store in Redis
