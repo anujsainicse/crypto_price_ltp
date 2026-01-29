@@ -469,5 +469,7 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 ---
 
 **Last Updated**: January 2026
-**Version**: 2.2.0 (HyperLiquid Perpetual Orderbook + Trades support)
+**Version**: 2.2.1 (Backwards compatibility for HyperLiquid Futures Redis keys)
 **Part of**: Scalper Bot Ecosystem
+
+**Migration Note**: HyperLiquid Perpetual service now writes to both new (`hyperliquid_futures*`) and legacy (`hyperliquid_perp*`) Redis keys for backwards compatibility. Legacy key writes can be disabled via `write_legacy_keys: false` in config once downstream consumers have migrated.

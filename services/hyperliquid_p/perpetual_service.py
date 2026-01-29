@@ -42,6 +42,13 @@ class HyperLiquidPerpetualService(BaseService):
         self.orderbook_redis_prefix = config.get('orderbook_redis_prefix', 'hyperliquid_futures_ob')
         self.trades_redis_prefix = config.get('trades_redis_prefix', 'hyperliquid_futures_trades')
 
+        # Legacy key support for backwards compatibility (deprecated - will be removed in future version)
+        # This writes to both new (hyperliquid_futures) and old (hyperliquid_perp) keys
+        self.legacy_redis_prefix = config.get('legacy_redis_prefix', 'hyperliquid_perp')
+        self.legacy_orderbook_prefix = config.get('legacy_orderbook_prefix', 'hyperliquid_perp_ob')
+        self.legacy_trades_prefix = config.get('legacy_trades_prefix', 'hyperliquid_perp_trades')
+        self.write_legacy_keys = config.get('write_legacy_keys', True)  # Enable by default for migration
+
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
@@ -200,7 +207,7 @@ class HyperLiquidPerpetualService(BaseService):
                         self.logger.warning(f"Cannot convert price to float for {symbol}: {mid_price}")
                         continue
 
-                    # Store in Redis
+                    # Store in Redis (primary key)
                     redis_key = f"{self.redis_prefix}:{symbol}"
                     success = self.redis_client.set_price_data(
                         key=redis_key,
@@ -212,6 +219,20 @@ class HyperLiquidPerpetualService(BaseService):
                         },
                         ttl=self.redis_ttl
                     )
+
+                    # Write to legacy key for backwards compatibility (deprecated)
+                    if self.write_legacy_keys:
+                        legacy_key = f"{self.legacy_redis_prefix}:{symbol}"
+                        self.redis_client.set_price_data(
+                            key=legacy_key,
+                            price=price,
+                            symbol=symbol,
+                            additional_data={
+                                'price_type': 'mid',
+                                'contract_type': 'perpetual'
+                            },
+                            ttl=self.redis_ttl
+                        )
 
                     if success:
                         self.logger.debug(f"Updated {symbol}: ${price}")
@@ -279,6 +300,10 @@ class HyperLiquidPerpetualService(BaseService):
                     # Ensure stale data is removed from Redis immediately
                     redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
                     self.redis_client.delete_key(redis_key)
+                    # Also clean legacy key
+                    if self.write_legacy_keys:
+                        legacy_key = f"{self.legacy_orderbook_prefix}:{symbol}"
+                        self.redis_client.delete_key(legacy_key)
                     return
                 spread = best_ask - best_bid
                 mid_price = (best_bid + best_ask) / 2
@@ -291,7 +316,7 @@ class HyperLiquidPerpetualService(BaseService):
                 'timestamp': timestamp
             }
 
-            # Store in Redis
+            # Store in Redis (primary key)
             redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
             success = self.redis_client.set_orderbook_data(
                 key=redis_key,
@@ -305,6 +330,20 @@ class HyperLiquidPerpetualService(BaseService):
             )
             if not success:
                 self.logger.warning(f"Failed to update orderbook in Redis for {symbol}")
+
+            # Write to legacy key for backwards compatibility (deprecated)
+            if self.write_legacy_keys:
+                legacy_key = f"{self.legacy_orderbook_prefix}:{symbol}"
+                self.redis_client.set_orderbook_data(
+                    key=legacy_key,
+                    bids=bids,
+                    asks=asks,
+                    spread=spread,
+                    mid_price=mid_price,
+                    update_id=str(timestamp),
+                    original_symbol=symbol,
+                    ttl=self.redis_ttl
+                )
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook: {e}")
@@ -365,7 +404,7 @@ class HyperLiquidPerpetualService(BaseService):
                     except (ValueError, TypeError):
                         continue
 
-                # Store in Redis
+                # Store in Redis (primary key)
                 redis_key = f"{self.trades_redis_prefix}:{symbol}"
                 success = self.redis_client.set_trades_data(
                     key=redis_key,
@@ -375,6 +414,16 @@ class HyperLiquidPerpetualService(BaseService):
                 )
                 if not success:
                     self.logger.warning(f"Failed to update trades in Redis for {symbol}")
+
+                # Write to legacy key for backwards compatibility (deprecated)
+                if self.write_legacy_keys:
+                    legacy_key = f"{self.legacy_trades_prefix}:{symbol}"
+                    self.redis_client.set_trades_data(
+                        key=legacy_key,
+                        trades=list(self._trades[symbol]),
+                        original_symbol=symbol,
+                        ttl=self.redis_ttl
+                    )
 
         except Exception as e:
             self.logger.error(f"Error processing trades: {e}")
