@@ -380,8 +380,8 @@ python -m services.bybit_spot
 | Delta Spot | `services/delta_s/spot_service.py` | LTP + Orderbook + Trades |
 | Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP + Orderbook + Trades |
 | Delta Options | `services/delta_o/options_service.py` | LTP + Greeks |
-| HyperLiquid Spot | `services/hyperliquid_s/spot_service.py` | LTP |
-| HyperLiquid Perp | `services/hyperliquid_p/perpetual_service.py` | LTP |
+| HyperLiquid Spot | `services/hyperliquid_s/spot_service.py` | LTP + Orderbook + Trades |
+| HyperLiquid Futures | `services/hyperliquid_p/perpetual_service.py` | LTP + Orderbook + Trades |
 
 ---
 
