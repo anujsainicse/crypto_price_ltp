@@ -56,6 +56,7 @@ class DeltaFuturesLTPService(BaseService):
         # In-memory state
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
         self._trades: Dict[str, deque] = {}
+        self._trade_counter = 0  # Counter for unique fallback trade IDs
 
         # WebSocket connection
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
@@ -464,9 +465,10 @@ class DeltaFuturesLTPService(BaseService):
             if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                 return
 
-            # Generate robust fallback ID with counter
+            # Generate robust fallback ID with incrementing counter for uniqueness
             current_ts = int(time.time() * 1000)
-            fallback_id = f"unknown_{current_ts}_0"
+            self._trade_counter += 1
+            fallback_id = f"unknown_{current_ts}_{self._trade_counter}"
 
             # ID priority: Exchange ID -> Timestamp -> Fallback
             timestamp = data.get('timestamp')
