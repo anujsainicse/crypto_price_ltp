@@ -56,6 +56,7 @@ class DeltaFuturesLTPService(BaseService):
         # In-memory state
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
         self._trades: Dict[str, deque] = {}
+        self._trade_counter = 0  # Counter for unique fallback trade IDs
 
         # WebSocket connection
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
@@ -396,7 +397,7 @@ class DeltaFuturesLTPService(BaseService):
             self._trades[symbol] = deque(maxlen=self.trades_limit)
 
             # Add trades from snapshot
-            for trade in trades_data:
+            for i, trade in enumerate(trades_data):
                 # Validate trade is a dict before accessing
                 if not isinstance(trade, dict):
                     continue
@@ -414,18 +415,20 @@ class DeltaFuturesLTPService(BaseService):
                 if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                     continue
 
-                # Generate unique trade ID (timestamp + price + size hash)
+                # Generate robust fallback ID with counter to prevent duplicates
+                current_ts = int(time.time() * 1000)
+                fallback_id = f"unknown_{current_ts}_{i}"
+
+                # ID priority: Exchange ID -> Timestamp -> Fallback+Counter
+                # Check for exchange-provided unique IDs first
                 timestamp = trade.get('timestamp')
-                if timestamp is not None:
-                    trade_id = f"{timestamp}_{hash((price, size)) % 100000}"
-                else:
-                    trade_id = f"{int(time.time() * 1000)}_{hash((price, size)) % 100000}"
+                trade_id = str(trade.get('id') or trade.get('trade_id') or timestamp or fallback_id)
 
                 self._trades[symbol].append({
                     'p': price,
                     'q': size,
                     's': side,
-                    't': timestamp if timestamp is not None else int(time.time() * 1000),
+                    't': timestamp if timestamp is not None else current_ts,
                     'id': trade_id
                 })
 
@@ -462,19 +465,21 @@ class DeltaFuturesLTPService(BaseService):
             if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
                 return
 
-            # Generate unique trade ID (timestamp + price + size hash)
+            # Generate robust fallback ID with incrementing counter for uniqueness
+            current_ts = int(time.time() * 1000)
+            self._trade_counter += 1
+            fallback_id = f"unknown_{current_ts}_{self._trade_counter}"
+
+            # ID priority: Exchange ID -> Timestamp -> Fallback
             timestamp = data.get('timestamp')
-            if timestamp is not None:
-                trade_id = f"{timestamp}_{hash((price, size)) % 100000}"
-            else:
-                trade_id = f"{int(time.time() * 1000)}_{hash((price, size)) % 100000}"
+            trade_id = str(data.get('id') or data.get('trade_id') or timestamp or fallback_id)
 
             # Append new trade
             self._trades[symbol].append({
                 'p': price,
                 'q': size,
                 's': side,
-                't': timestamp if timestamp is not None else int(time.time() * 1000),
+                't': timestamp if timestamp is not None else current_ts,
                 'id': trade_id
             })
 

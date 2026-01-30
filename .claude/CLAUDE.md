@@ -22,7 +22,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 │  │   WebSocket   │  │   Socket.IO   │  │   WebSocket   │  │   WebSocket  │  │
 │  ├───────────────┤  ├───────────────┤  ├───────────────┤  ├──────────────┤  │
 │  │ Spot+Testnet  │  │ Spot+Futures  │  │Spot+Fut+Opts  │  │  Spot+Perp   │  │
-│  │ LTP/OB/Trades │  │ LTP/OB/Trades │  │ LTP/OB/Trades │  │     LTP      │  │
+│  │ LTP/OB/Trades │  │ LTP/OB/Trades │  │ LTP/OB/Trades │  │ LTP/OB/Trades│  │
 │  └───────┬───────┘  └───────┬───────┘  └───────┬───────┘  └──────┬───────┘  │
 │          │                  │                  │                  │          │
 │          └──────────────────┴──────────────────┴──────────────────┘          │
@@ -70,7 +70,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Delta** | `delta_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **Delta** | `delta_options` | Options | BTC, ETH (all strikes) | LTP + Greeks |
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
-| **HyperLiquid** | `hyperliquid_perp` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP |
+| **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
 **Total Services**: 10
 
@@ -94,19 +94,23 @@ coindcx_futures:BTC
 delta_spot:SOL
 delta_futures:BTC
 hyperliquid_spot:BTC
-hyperliquid_perp:ETH
+hyperliquid_futures:ETH
 
 # Orderbook Keys
 bybit_spot_ob:BTC
 coindcx_spot_ob:ETH
 delta_spot_ob:SOL
 delta_futures_ob:BTC
+hyperliquid_spot_ob:BTC
+hyperliquid_futures_ob:BTC
 
 # Trades Keys
 bybit_spot_trades:BTC
 coindcx_spot_trades:ETH
 delta_spot_trades:SOL
 delta_futures_trades:BTC
+hyperliquid_spot_trades:BTC
+hyperliquid_futures_trades:BTC
 ```
 
 ### Hash Fields
@@ -376,8 +380,8 @@ python -m services.bybit_spot
 | Delta Spot | `services/delta_s/spot_service.py` | LTP + Orderbook + Trades |
 | Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP + Orderbook + Trades |
 | Delta Options | `services/delta_o/options_service.py` | LTP + Greeks |
-| HyperLiquid Spot | `services/hyperliquid_s/spot_service.py` | LTP |
-| HyperLiquid Perp | `services/hyperliquid_p/perpetual_service.py` | LTP |
+| HyperLiquid Spot | `services/hyperliquid_s/spot_service.py` | LTP + Orderbook + Trades |
+| HyperLiquid Futures | `services/hyperliquid_p/perpetual_service.py` | LTP + Orderbook + Trades |
 
 ---
 
@@ -453,11 +457,11 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 | Auto-Reconnect | ✅ | ✅ | ✅ | ✅ |
 
 ### Futures/Perpetual Services
-| Feature | Delta Futures | CoinDCX Futures | HyperLiquid Perp |
-|---------|---------------|-----------------|------------------|
+| Feature | Delta Futures | CoinDCX Futures | HyperLiquid Futures |
+|---------|---------------|-----------------|---------------------|
 | LTP | ✅ | ✅ | ✅ |
-| Orderbook | ✅ (50 levels) | ❌ | ❌ |
-| Trades | ✅ (50 trades) | ❌ | ❌ |
+| Orderbook | ✅ (50 levels) | ❌ | ✅ (50 levels) |
+| Trades | ✅ (50 trades) | ❌ | ✅ (50 trades) |
 | Funding Rate | ✅ | ✅ | ❌ |
 | TTL | 60s | 60s | 60s |
 | Auto-Reconnect | ✅ | ✅ | ✅ |
@@ -465,5 +469,7 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 ---
 
 **Last Updated**: January 2026
-**Version**: 2.1.0 (Delta Futures Orderbook + Trades support)
+**Version**: 2.2.1 (Backwards compatibility for HyperLiquid Futures Redis keys)
 **Part of**: Scalper Bot Ecosystem
+
+**Migration Note**: HyperLiquid Perpetual service now writes to both new (`hyperliquid_futures*`) and legacy (`hyperliquid_perp*`) Redis keys for backwards compatibility. Legacy key writes can be disabled via `write_legacy_keys: false` in config once downstream consumers have migrated.
