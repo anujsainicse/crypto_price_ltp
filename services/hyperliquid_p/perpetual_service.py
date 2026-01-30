@@ -291,8 +291,12 @@ class HyperLiquidPerpetualService(BaseService):
             mid_price = 0.0
 
             if best_bid > 0 and best_ask > 0:
-                if best_bid >= best_ask:
-                    self.logger.warning(f"Crossed book for {symbol}: Bid {best_bid} >= Ask {best_ask}. Dropping update.")
+                spread = best_ask - best_bid
+                mid_price = (best_bid + best_ask) / 2
+
+                # Skip storing if spread is invalid (crossed book)
+                if spread < 0:
+                    self.logger.warning(f"Crossed book for {symbol}: Bid {best_bid} > Ask {best_ask}. Dropping update.")
                     # Clear corrupted state
                     if symbol in self._orderbooks:
                         del self._orderbooks[symbol]
@@ -305,8 +309,6 @@ class HyperLiquidPerpetualService(BaseService):
                         legacy_key = f"{self.legacy_orderbook_prefix}:{symbol}"
                         self.redis_client.delete_key(legacy_key)
                     return
-                spread = best_ask - best_bid
-                mid_price = (best_bid + best_ask) / 2
 
             # Update state
             timestamp = content.get('time') or int(time.time() * 1000)
