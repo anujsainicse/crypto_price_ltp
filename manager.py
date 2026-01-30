@@ -11,7 +11,7 @@ from config.settings import Settings
 
 # Import services
 from services.bybit_s import BybitSpotService
-from services.coindcx_f import CoinDCXFuturesLTPService, CoinDCXFundingRateService
+from services.coindcx_f import CoinDCXFuturesLTPService, CoinDCXFundingRateService, CoinDCXFuturesRESTService
 from services.coindcx_s import CoinDCXSpotService
 from services.delta_f import DeltaFuturesLTPService
 from services.delta_s import DeltaSpotService
@@ -154,6 +154,18 @@ class ServiceManager:
                     'config': funding_config
                 }
                 self.logger.info("✓ CoinDCX Funding Rate Service loaded")
+
+            # CoinDCX Futures REST Service (unified LTP + Orderbook + Trades + Funding)
+            rest_config = services_config.get('futures_rest', {})
+            if rest_config.get('enabled', False):
+                service = CoinDCXFuturesRESTService(rest_config)
+                self.services.append(service)
+                self.service_registry['coindcx_futures_rest'] = {
+                    'service': service,
+                    'task': None,
+                    'config': rest_config
+                }
+                self.logger.info("✓ CoinDCX Futures REST Service loaded")
 
         elif exchange == 'delta':
             # Delta Spot Service
