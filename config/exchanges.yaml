@@ -83,9 +83,49 @@ coindcx:
       trades_limit: 50
       trades_redis_prefix: "coindcx_spot_trades"
 
-    futures_ltp:
+    # NEW: Unified REST-based futures service (replaces futures_ltp and funding_rate)
+    futures_rest:
       enabled: true
       auto_start: true
+      # API endpoints
+      ltp_api_url: "https://public.coindcx.com/market_data/v3/current_prices/futures/rt"
+      orderbook_api_url: "https://public.coindcx.com/market_data/orderbook"
+      trades_api_url: "https://public.coindcx.com/market_data/trade_history"
+      funding_api_url: "https://futures.coindcx.com/exchange/v1/funding_rate/v2"
+      # Polling intervals (seconds)
+      ltp_interval: 1
+      orderbook_interval: 1
+      trades_interval: 2
+      funding_interval: 1800
+      # Symbols (B- prefix = Binance-backed futures)
+      symbols:
+        - "B-BTC_USDT"
+        - "B-ETH_USDT"
+        - "B-SOL_USDT"
+        - "B-BNB_USDT"
+        - "B-DOGE_USDT"
+      # Symbol parsing configuration
+      symbol_prefix: "B-"
+      quote_currencies:
+        - "USDT"
+        - "USDC"
+        - "USD"
+      # Redis configuration
+      redis_prefix: "coindcx_futures"
+      orderbook_redis_prefix: "coindcx_futures_ob"
+      trades_redis_prefix: "coindcx_futures_trades"
+      redis_ttl: 60
+      # Data limits
+      orderbook_depth: 50
+      trades_limit: 50
+      # HTTP settings
+      api_timeout: 10
+      max_connections: 10
+
+    # DEPRECATED: Socket.IO-based LTP service (replaced by futures_rest)
+    futures_ltp:
+      enabled: false
+      auto_start: false
       websocket_url: "wss://stream.coindcx.com"
       symbols:
         - "B-BTC_USDT"
@@ -98,9 +138,10 @@ coindcx:
       redis_prefix: "coindcx_futures"
       redis_ttl: 60
 
+    # DEPRECATED: Funding rate service (replaced by futures_rest)
     funding_rate:
-      enabled: true
-      auto_start: true
+      enabled: false
+      auto_start: false
       api_url: "https://public.coindcx.com/market_data/v3/current_prices/futures/rt"
       update_interval: 1800  # 30 minutes
       symbols:
