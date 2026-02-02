@@ -99,6 +99,7 @@ hyperliquid_futures:ETH
 # Orderbook Keys
 bybit_spot_ob:BTC
 coindcx_spot_ob:ETH
+coindcx_futures_ob:BTC
 delta_spot_ob:SOL
 delta_futures_ob:BTC
 hyperliquid_spot_ob:BTC
@@ -107,6 +108,7 @@ hyperliquid_futures_ob:BTC
 # Trades Keys
 bybit_spot_trades:BTC
 coindcx_spot_trades:ETH
+coindcx_futures_trades:BTC
 delta_spot_trades:SOL
 delta_futures_trades:BTC
 hyperliquid_spot_trades:BTC
@@ -375,8 +377,9 @@ python -m services.bybit_spot
 | Bybit Spot | `services/bybit_s/spot_service.py` | LTP + Orderbook + Trades |
 | Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP |
 | CoinDCX Spot | `services/coindcx_s/spot_service.py` | LTP + Orderbook + Trades |
-| CoinDCX Futures | `services/coindcx_f/futures_ltp_service.py` | LTP |
-| CoinDCX Funding | `services/coindcx_f/funding_rate_service.py` | Funding Rates |
+| CoinDCX Futures REST | `services/coindcx_f/futures_rest_service.py` | LTP + Orderbook + Trades + Funding (REST-based) |
+| CoinDCX Futures (deprecated) | `services/coindcx_f/futures_ltp_service.py` | LTP (Socket.IO, replaced by REST) |
+| CoinDCX Funding (deprecated) | `services/coindcx_f/funding_rate_service.py` | Funding Rates (replaced by REST) |
 | Delta Spot | `services/delta_s/spot_service.py` | LTP + Orderbook + Trades |
 | Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP + Orderbook + Trades |
 | Delta Options | `services/delta_o/options_service.py` | LTP + Greeks |
@@ -457,19 +460,22 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 | Auto-Reconnect | ✅ | ✅ | ✅ | ✅ |
 
 ### Futures/Perpetual Services
-| Feature | Delta Futures | CoinDCX Futures | HyperLiquid Futures |
-|---------|---------------|-----------------|---------------------|
-| LTP | ✅ | ✅ | ✅ |
-| Orderbook | ✅ (50 levels) | ❌ | ✅ (50 levels) |
-| Trades | ✅ (50 trades) | ❌ | ✅ (50 trades) |
-| Funding Rate | ✅ | ✅ | ❌ |
+| Feature | Delta Futures | CoinDCX Futures REST | HyperLiquid Futures |
+|---------|---------------|----------------------|---------------------|
+| LTP | ✅ | ✅ (1s polling) | ✅ |
+| Orderbook | ✅ (50 levels) | ✅ (50 levels, 1s polling) | ✅ (50 levels) |
+| Trades | ✅ (50 trades) | ✅ (50 trades, 2s polling) | ✅ (50 trades) |
+| Funding Rate | ✅ | ✅ (30min polling) | ❌ |
 | TTL | 60s | 60s | 60s |
-| Auto-Reconnect | ✅ | ✅ | ✅ |
+| Connection Type | WebSocket | REST API | WebSocket |
+| Auto-Reconnect | ✅ | ✅ (exponential backoff) | ✅ |
 
 ---
 
 **Last Updated**: January 2026
-**Version**: 2.2.1 (Backwards compatibility for HyperLiquid Futures Redis keys)
+**Version**: 2.3.0 (CoinDCX Futures REST service with full market data)
 **Part of**: Scalper Bot Ecosystem
+
+**CoinDCX Futures Note**: The new REST-based service (`futures_rest_service.py`) replaces the Socket.IO-based `futures_ltp_service.py` and separate `funding_rate_service.py`. It provides LTP, orderbook, trades, and funding rate data via REST API polling for better stability.
 
 **Migration Note**: HyperLiquid Perpetual service now writes to both new (`hyperliquid_futures*`) and legacy (`hyperliquid_perp*`) Redis keys for backwards compatibility. Legacy key writes can be disabled via `write_legacy_keys: false` in config once downstream consumers have migrated.
