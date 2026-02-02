@@ -99,6 +99,7 @@ hyperliquid_futures:ETH
 # Orderbook Keys
 bybit_spot_ob:BTC
 coindcx_spot_ob:ETH
+coindcx_futures_ob:BTC
 delta_spot_ob:SOL
 delta_futures_ob:BTC
 hyperliquid_spot_ob:BTC
@@ -107,6 +108,7 @@ hyperliquid_futures_ob:BTC
 # Trades Keys
 bybit_spot_trades:BTC
 coindcx_spot_trades:ETH
+coindcx_futures_trades:BTC
 delta_spot_trades:SOL
 delta_futures_trades:BTC
 hyperliquid_spot_trades:BTC
