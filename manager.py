@@ -11,6 +11,7 @@ from config.settings import Settings
 
 # Import services
 from services.bybit_s import BybitSpotService
+from services.bybit_o import BybitOptionsService
 from services.coindcx_f import CoinDCXFuturesLTPService, CoinDCXFundingRateService, CoinDCXFuturesRESTService
 from services.coindcx_s import CoinDCXSpotService
 from services.delta_f import DeltaFuturesLTPService
@@ -117,6 +118,18 @@ class ServiceManager:
                     'config': futures_ob_config
                 }
                 self.logger.info("✓ Bybit Futures Orderbook Service loaded")
+
+            # Bybit Options Service
+            options_config = services_config.get('options', {})
+            if options_config.get('enabled', False):
+                service = BybitOptionsService(options_config)
+                self.services.append(service)
+                self.service_registry['bybit_options'] = {
+                    'service': service,
+                    'task': None,
+                    'config': options_config
+                }
+                self.logger.info("✓ Bybit Options Service loaded")
 
         elif exchange == 'coindcx':
             # CoinDCX Spot Service
