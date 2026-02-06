@@ -53,6 +53,39 @@ bybit:
         - "USDC"
       orderbook_depth: 50
 
+    options:
+      enabled: true
+      auto_start: true
+
+      # API endpoints
+      websocket_url: "wss://stream.bybit.com/v5/public/option"
+      rest_api_url: "https://api.bybit.com/v5/market/instruments-info"
+
+      # Symbol selection (empty = auto-discover all available base coins)
+      base_coins: []
+      use_dynamic_base_coin_discovery: true
+      subscribe_all: false
+      max_symbols_per_asset: 100  # Top 100 by OI per underlying
+      max_active_symbols: 1000
+
+      # Subscription behavior
+      subscription_batch_size: 50
+      subscription_batch_delay: 0.2
+      symbol_refresh_interval: 3600  # 1 hour
+
+      # Connection settings
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+
+      # Redis storage
+      redis_prefix: "bybit_options"
+      redis_ttl: 60
+
+      # Optional orderbook (disabled by default - ticker data only)
+      orderbook_enabled: false
+      orderbook_depth: 25
+      orderbook_redis_prefix: "bybit_options_ob"
+
 coindcx:
   name: "CoinDCX"
   enabled: true
