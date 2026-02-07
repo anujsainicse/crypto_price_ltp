@@ -235,8 +235,17 @@ delta:
       symbol_refresh_interval: 3600  # Refresh symbols every hour (options expire)
       reconnect_interval: 5
       max_reconnect_attempts: 10
+      # Redis - LTP/Ticker
       redis_prefix: "delta_options"
       redis_ttl: 60
+      # Orderbook configuration
+      orderbook_enabled: true
+      orderbook_depth: 50
+      orderbook_redis_prefix: "delta_options_ob"
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "delta_options_trades"
 
     spot:
       enabled: true
