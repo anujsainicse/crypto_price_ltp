@@ -704,14 +704,12 @@ class CoinDCXFuturesRESTService(BaseService):
                         ttl=self.redis_ttl
                     )
                 else:
-                    # Create placeholder entry (LTP will be updated by LTP poller)
-                    success = self.redis_client.set_price_data(
-                        key=redis_key,
-                        price=0.0,
-                        symbol=symbol,
-                        additional_data=funding_data,
-                        ttl=self.redis_ttl
+                    # Skip writing placeholder - wait for LTP poller to create the entry
+                    # Writing price=0.0 would cause downstream consumers (AOE) to read invalid price
+                    self.logger.debug(
+                        f"Skipping funding update for {base_coin} - no LTP data yet"
                     )
+                    continue
 
                 if success:
                     updated_count += 1
