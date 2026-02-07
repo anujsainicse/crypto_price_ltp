@@ -450,6 +450,9 @@ class BybitOptionsService(BaseService):
                 if to_unsubscribe:
                     self.logger.info(f"Unsubscribing from {len(to_unsubscribe)} expired symbols")
                     await self._unsubscribe_symbols(list(to_unsubscribe))
+                    # Clean up in-memory orderbook state for expired symbols
+                    for symbol in to_unsubscribe:
+                        self._orderbooks.pop(symbol, None)
 
                 if to_subscribe:
                     self.logger.info(f"Subscribing to {len(to_subscribe)} new symbols")
