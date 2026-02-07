@@ -775,6 +775,9 @@ class DeltaOptionsService(BaseService):
                 current_ts = int(time.time() * 1000)
                 fallback_id = f"snapshot_{current_ts}_{i}"
 
+                # Get timestamp from trade data
+                timestamp = trade.get('timestamp')
+
                 # ID priority: Exchange ID -> Trade ID -> Timestamp -> Fallback
                 # Use explicit None checks to avoid "None" string
                 raw_id = trade.get('id')
