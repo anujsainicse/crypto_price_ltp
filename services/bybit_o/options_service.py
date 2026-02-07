@@ -329,8 +329,9 @@ class BybitOptionsService(BaseService):
                 # Reset attempts if connection was stable for >30s
                 connection_duration = time.time() - connection_start_time
                 if connection_duration > 30:
-                    reconnect_attempts = 0  # Full reset after stable connection
-                reconnect_attempts += 1
+                    reconnect_attempts = 1
+                else:
+                    reconnect_attempts += 1
 
                 # Clear stale WebSocket reference
                 self.websocket = None
