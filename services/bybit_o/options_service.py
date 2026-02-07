@@ -350,11 +350,8 @@ class BybitOptionsService(BaseService):
         # This prevents serving stale data after reconnection
         if self.orderbook_enabled:
             for symbol in self.active_symbols:
-                try:
-                    redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
-                    self.redis_client.client.delete(redis_key)
-                except Exception:
-                    pass  # Best effort cleanup
+                redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
+                self.redis_client.delete_key(redis_key)
 
         async with websockets.connect(
             self.ws_url,
@@ -748,11 +745,8 @@ class BybitOptionsService(BaseService):
                     # Clear from memory
                     del self._orderbooks[symbol]
                     # Also clear stale Redis data to prevent serving bad orderbook
-                    try:
-                        redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
-                        self.redis_client.client.delete(redis_key)
-                    except Exception:
-                        pass
+                    redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
+                    self.redis_client.delete_key(redis_key)
                     return
 
                 mid_price = (best_bid + best_ask) / 2
