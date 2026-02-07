@@ -208,7 +208,7 @@ class CoinDCXFuturesRESTService(BaseService):
                 await self._handle_backoff('funding', e)
             except Exception as e:
                 self.logger.error(f"Funding unexpected error: {e}")
-                await asyncio.sleep(60)  # Wait 1 minute on error
+                await asyncio.sleep(self.funding_interval)
 
     async def _health_check_loop(self):
         """Periodically log health status of all data types."""
