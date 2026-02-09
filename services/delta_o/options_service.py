@@ -6,7 +6,8 @@ import math
 import time
 import websockets
 import aiohttp
-from typing import Optional, List, Dict
+from collections import deque
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 from core.base_service import BaseService
@@ -16,7 +17,9 @@ class DeltaOptionsService(BaseService):
     """Service for streaming Delta Exchange options data via WebSocket.
 
     Redis Key Patterns:
-        Option: {redis_prefix}:{symbol} (Hash)
+        Ticker:    {redis_prefix}:{symbol} (Hash) - e.g., delta_options:C-BTC-106000-241220
+        Orderbook: {orderbook_redis_prefix}:{symbol} (Hash) - e.g., delta_options_ob:C-BTC-106000-241220
+        Trades:    {trades_redis_prefix}:{symbol} (Hash) - e.g., delta_options_trades:C-BTC-106000-241220
     """
 
     # REST API endpoint for fetching tickers (using India API for more options)
@@ -47,6 +50,22 @@ class DeltaOptionsService(BaseService):
         self.reconnect_interval = config.get('reconnect_interval', 5)
         self.redis_prefix = config.get('redis_prefix', 'delta_options')
         self.redis_ttl = config.get('redis_ttl', 60)
+
+        # Orderbook and trades feature flags
+        self.orderbook_enabled = config.get('orderbook_enabled', False)
+        self.trades_enabled = config.get('trades_enabled', False)
+        self.orderbook_depth = config.get('orderbook_depth', 50)
+        self.trades_limit = config.get('trades_limit', 50)
+
+        # Redis prefixes for orderbook and trades
+        self.orderbook_redis_prefix = config.get('orderbook_redis_prefix', 'delta_options_ob')
+        self.trades_redis_prefix = config.get('trades_redis_prefix', 'delta_options_trades')
+
+        # In-memory state for orderbook and trades
+        self._orderbooks: Dict[str, Dict[str, Any]] = {}
+        self._trades: Dict[str, deque] = {}
+        self._trade_counter = 0
+
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         # Exponential backoff delays as per CLAUDE.md: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
@@ -222,6 +241,22 @@ class DeltaOptionsService(BaseService):
 
     async def _connect_and_stream(self):
         """Connect to WebSocket and stream options data."""
+        # Clear stale state on reconnection (but NOT _trade_counter to avoid duplicate IDs)
+        self._orderbooks.clear()
+        self._trades.clear()
+
+        # Clear stale Redis keys to prevent serving stale data after reconnection
+        # This is important because fresh snapshots will repopulate the data
+        if self.orderbook_enabled:
+            for symbol in self.active_symbols:
+                redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
+                self.redis_client.delete_key(redis_key)
+
+        if self.trades_enabled:
+            for symbol in self.active_symbols:
+                redis_key = f"{self.trades_redis_prefix}:{symbol}"
+                self.redis_client.delete_key(redis_key)
+
         async with websockets.connect(
             self.ws_url,
             ping_interval=30,
@@ -281,6 +316,10 @@ class DeltaOptionsService(BaseService):
                 if to_unsubscribe:
                     self.logger.info(f"Unsubscribing from {len(to_unsubscribe)} expired symbols")
                     await self._unsubscribe_symbols(list(to_unsubscribe))
+                    # Clean up in-memory state for expired symbols
+                    for symbol in to_unsubscribe:
+                        self._orderbooks.pop(symbol, None)
+                        self._trades.pop(symbol, None)
 
                 if to_subscribe:
                     self.logger.info(f"Subscribing to {len(to_subscribe)} new symbols")
@@ -296,45 +335,75 @@ class DeltaOptionsService(BaseService):
                 self.logger.error(f"Error during symbol refresh: {e}")
 
     async def _subscribe_single_symbol(self, symbol: str):
-        """Subscribe to a single symbol."""
+        """Subscribe to a single symbol (all enabled channels)."""
         if not self.websocket:
             return
+
+        # Build channel list based on feature flags
+        channels = [
+            {
+                "name": "v2/ticker",
+                "symbols": [symbol]
+            }
+        ]
+
+        if self.orderbook_enabled:
+            channels.append({
+                "name": "l2_orderbook",
+                "symbols": [symbol]
+            })
+
+        if self.trades_enabled:
+            channels.append({
+                "name": "all_trades",
+                "symbols": [symbol]
+            })
 
         subscribe_msg = {
             "type": "subscribe",
             "payload": {
-                "channels": [
-                    {
-                        "name": "v2/ticker",
-                        "symbols": [symbol]
-                    }
-                ]
+                "channels": channels
             }
         }
         await self.websocket.send(json.dumps(subscribe_msg))
         self.logger.info(f"Subscribed to {symbol}")
 
     async def _unsubscribe_symbols(self, symbols: List[str]):
-        """Unsubscribe from a list of symbols."""
+        """Unsubscribe from a list of symbols (all channels)."""
         if not self.websocket or not symbols:
             return
+
+        # Build channel list matching subscription pattern
+        channels = [
+            {
+                "name": "v2/ticker",
+                "symbols": symbols
+            }
+        ]
+
+        if self.orderbook_enabled:
+            channels.append({
+                "name": "l2_orderbook",
+                "symbols": symbols
+            })
+
+        if self.trades_enabled:
+            channels.append({
+                "name": "all_trades",
+                "symbols": symbols
+            })
 
         unsubscribe_msg = {
             "type": "unsubscribe",
             "payload": {
-                "channels": [
-                    {
-                        "name": "v2/ticker",
-                        "symbols": symbols
-                    }
-                ]
+                "channels": channels
             }
         }
         await self.websocket.send(json.dumps(unsubscribe_msg))
         self.logger.info(f"Unsubscribed from {len(symbols)} symbols")
 
     async def _subscribe_to_symbols(self):
-        """Subscribe to options ticker/trade updates for discovered symbols in batches."""
+        """Subscribe to options ticker/orderbook/trade updates for discovered symbols in batches."""
         if not self.websocket:
             return
 
@@ -342,28 +411,58 @@ class DeltaOptionsService(BaseService):
         batch_size = self.subscription_batch_size
         batch_delay = self.subscription_batch_delay
 
-        self.logger.info(f"Subscribing to {total_symbols} options in batches of {batch_size}...")
+        # Build feature description for logging
+        features = ["ticker"]
+        if self.orderbook_enabled:
+            features.append("orderbook")
+        if self.trades_enabled:
+            features.append("trades")
+        self.logger.info(
+            f"Subscribing to {total_symbols} options in batches of {batch_size}... "
+            f"(Features: {', '.join(features)})"
+        )
 
         for i in range(0, total_symbols, batch_size):
             batch = self.active_symbols[i:i + batch_size]
             batch_num = i // batch_size + 1
             total_batches = (total_symbols + batch_size - 1) // batch_size
 
-            # Subscribe to entire batch in one message
+            # Build channel list based on feature flags
+            channels = [
+                {
+                    "name": "v2/ticker",
+                    "symbols": batch
+                }
+            ]
+
+            # Add orderbook channel if enabled
+            if self.orderbook_enabled:
+                channels.append({
+                    "name": "l2_orderbook",
+                    "symbols": batch
+                })
+
+            # Add trades channel if enabled
+            if self.trades_enabled:
+                channels.append({
+                    "name": "all_trades",
+                    "symbols": batch
+                })
+
+            # Subscribe to entire batch in one message (multiplexed channels)
             subscribe_msg = {
                 "type": "subscribe",
                 "payload": {
-                    "channels": [
-                        {
-                            "name": "v2/ticker",
-                            "symbols": batch
-                        }
-                    ]
+                    "channels": channels
                 }
             }
             await self.websocket.send(json.dumps(subscribe_msg))
 
-            self.logger.info(f"Subscribed batch {batch_num}/{total_batches}: {len(batch)} symbols")
+            channel_names = [ch['name'] for ch in channels]
+            self.logger.info(
+                f"Subscribed batch {batch_num}/{total_batches}: {len(batch)} symbols, "
+                f"channels: {channel_names}"
+            )
 
             # Add delay between batches (but not after the last one)
             if i + batch_size < total_symbols:
@@ -400,6 +499,15 @@ class DeltaOptionsService(BaseService):
             # Handle ticker updates
             if msg_type == 'v2/ticker':
                 await self._process_ticker_update(data)
+            # Handle orderbook updates
+            elif msg_type == 'l2_orderbook':
+                await self._process_orderbook_update(data)
+            # Handle trade snapshots (initial batch on subscribe)
+            elif msg_type == 'all_trades_snapshot':
+                await self._process_trade_snapshot(data)
+            # Handle real-time trade updates
+            elif msg_type == 'all_trades':
+                await self._process_trade_update(data)
             else:
                 # Log unhandled message types (but not too verbosely)
                 self.logger.debug(f"Received message type: {msg_type}")
@@ -525,6 +633,263 @@ class DeltaOptionsService(BaseService):
                 'expiry': ''
             }
 
+    async def _process_orderbook_update(self, data: dict):
+        """Process l2_orderbook message and store in Redis.
+
+        Delta sends full orderbook snapshots each time (not deltas).
+
+        Args:
+            data: Orderbook update data
+        """
+        if not self.orderbook_enabled:
+            return
+
+        try:
+            symbol = data.get('symbol', '')
+            if not symbol or symbol not in self.active_symbols:
+                return
+
+            # Extract buy/sell orders from Delta format
+            buy_orders = data.get('buy') or []
+            sell_orders = data.get('sell') or []
+
+            # Parse orders into [[price, qty], ...] format
+            def parse_orders(orders: List) -> List[List[float]]:
+                parsed = []
+                for order in orders:
+                    if not isinstance(order, dict):
+                        continue
+                    try:
+                        price = float(order.get('limit_price', 0))
+                        size = float(order.get('size', 0))
+                        if price > 0 and size > 0 and math.isfinite(price) and math.isfinite(size):
+                            parsed.append([price, size])
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+                return parsed
+
+            # Sort: bids descending, asks ascending
+            bids = sorted(
+                parse_orders(buy_orders),
+                key=lambda x: x[0],
+                reverse=True
+            )[:self.orderbook_depth]
+
+            asks = sorted(
+                parse_orders(sell_orders),
+                key=lambda x: x[0]
+            )[:self.orderbook_depth]
+
+            # Validate non-empty orderbook
+            if not bids or not asks:
+                return
+
+            # Calculate spread and mid price BEFORE updating state
+            best_bid = bids[0][0]
+            best_ask = asks[0][0]
+            spread = best_ask - best_bid
+
+            # Check for crossed book (invalid) - do this before storing state
+            if spread < 0:
+                self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
+                # Clear any existing corrupted state
+                if symbol in self._orderbooks:
+                    del self._orderbooks[symbol]
+                # Remove stale Redis data
+                redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
+                self.redis_client.delete_key(redis_key)
+                return
+
+            mid_price = (best_bid + best_ask) / 2
+
+            # Update in-memory state (only after validation passes)
+            self._orderbooks[symbol] = {
+                'bids': bids,
+                'asks': asks,
+                'update_id': data.get('last_sequence_no', ''),
+                'timestamp': int(time.time())
+            }
+
+            # Store in Redis
+            redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
+
+            success = self.redis_client.set_orderbook_data(
+                key=redis_key,
+                bids=bids,
+                asks=asks,
+                spread=spread,
+                mid_price=mid_price,
+                update_id=data.get('last_sequence_no', ''),
+                original_symbol=symbol,
+                ttl=self.redis_ttl
+            )
+
+            if success:
+                self.logger.debug(
+                    f"Updated {symbol} orderbook: spread=${spread:.4f}, "
+                    f"mid=${mid_price:.2f}, {len(bids)} bids, {len(asks)} asks"
+                )
+            else:
+                self.logger.warning(f"Failed to update orderbook in Redis for {symbol}")
+
+        except Exception as e:
+            self.logger.error(f"Error processing orderbook update: {e}")
+
+    async def _process_trade_snapshot(self, data: dict):
+        """Process all_trades_snapshot message (initial trades on subscribe).
+
+        Args:
+            data: Trade snapshot data
+        """
+        if not self.trades_enabled:
+            return
+
+        try:
+            symbol = data.get('symbol', '')
+            if not symbol or symbol not in self.active_symbols:
+                return
+
+            trades_data = data.get('trades', [])
+
+            # Initialize deque with max length
+            self._trades[symbol] = deque(maxlen=self.trades_limit)
+
+            # Add trades from snapshot
+            for i, trade in enumerate(trades_data):
+                if not isinstance(trade, dict):
+                    continue
+
+                # Determine side (Delta uses buyer_role/seller_role)
+                side = 'Buy' if trade.get('buyer_role') == 'taker' else 'Sell'
+
+                try:
+                    price = float(trade.get('price', 0))
+                    size = float(trade.get('size', 0))
+                except (ValueError, TypeError):
+                    continue
+
+                if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
+                    continue
+
+                # Generate robust fallback ID
+                current_ts = int(time.time() * 1000)
+                fallback_id = f"snapshot_{current_ts}_{i}"
+
+                # Get timestamp from trade data
+                timestamp = trade.get('timestamp')
+
+                # ID priority: Exchange ID -> Trade ID -> Timestamp -> Fallback
+                # Use explicit None checks to avoid "None" string
+                raw_id = trade.get('id')
+                if raw_id is None:
+                    raw_id = trade.get('trade_id')
+                if raw_id is None:
+                    raw_id = timestamp
+                if raw_id is None:
+                    raw_id = fallback_id
+                trade_id = str(raw_id)
+
+                self._trades[symbol].append({
+                    'p': price,
+                    'q': size,
+                    's': side,
+                    't': timestamp if timestamp is not None else current_ts,
+                    'id': trade_id
+                })
+
+            # Store in Redis
+            await self._store_trades(symbol)
+
+            self.logger.info(f"Received trade snapshot for {symbol}: {len(trades_data)} trades")
+
+        except Exception as e:
+            self.logger.error(f"Error processing trade snapshot: {e}")
+
+    async def _process_trade_update(self, data: dict):
+        """Process real-time all_trades message.
+
+        Args:
+            data: Trade update data
+        """
+        if not self.trades_enabled:
+            return
+
+        try:
+            symbol = data.get('symbol', '')
+            if not symbol or symbol not in self.active_symbols:
+                return
+
+            # Initialize deque if needed
+            if symbol not in self._trades:
+                self._trades[symbol] = deque(maxlen=self.trades_limit)
+
+            # Determine side
+            side = 'Buy' if data.get('buyer_role') == 'taker' else 'Sell'
+
+            try:
+                price = float(data.get('price', 0))
+                size = float(data.get('size', 0))
+            except (ValueError, TypeError):
+                return
+
+            if price <= 0 or size <= 0 or not math.isfinite(price) or not math.isfinite(size):
+                return
+
+            # Generate robust fallback ID with counter
+            current_ts = int(time.time() * 1000)
+            self._trade_counter += 1
+            fallback_id = f"realtime_{current_ts}_{self._trade_counter}"
+
+            # ID priority: Exchange ID -> Trade ID -> Timestamp -> Fallback
+            # Use explicit None checks to avoid "None" string
+            timestamp = data.get('timestamp')
+            raw_id = data.get('id')
+            if raw_id is None:
+                raw_id = data.get('trade_id')
+            if raw_id is None:
+                raw_id = timestamp
+            if raw_id is None:
+                raw_id = fallback_id
+            trade_id = str(raw_id)
+
+            # Append new trade (auto-evicts oldest due to maxlen)
+            self._trades[symbol].append({
+                'p': price,
+                'q': size,
+                's': side,
+                't': timestamp if timestamp is not None else current_ts,
+                'id': trade_id
+            })
+
+            # Store in Redis
+            await self._store_trades(symbol)
+
+            self.logger.debug(f"Updated {symbol} trades: {len(self._trades[symbol])} trades in buffer")
+
+        except Exception as e:
+            self.logger.error(f"Error processing trade update: {e}")
+
+    async def _store_trades(self, symbol: str):
+        """Store trades to Redis.
+
+        Args:
+            symbol: Option symbol (e.g., C-BTC-106000-241220)
+        """
+        redis_key = f"{self.trades_redis_prefix}:{symbol}"
+
+        # Convert deque to list for storage
+        trades_list = list(self._trades.get(symbol, []))
+
+        success = self.redis_client.set_trades_data(
+            key=redis_key,
+            trades=trades_list,
+            original_symbol=symbol,
+            ttl=self.redis_ttl
+        )
+
+        if not success:
+            self.logger.warning(f"Failed to update trades in Redis for {symbol}")
+
     async def stop(self):
         """Stop the service."""
         self.running = False
@@ -535,6 +900,10 @@ class DeltaOptionsService(BaseService):
                 self.logger.info("WebSocket connection closed")
             except Exception as e:
                 self.logger.error(f"Error closing WebSocket: {e}")
+
+        # Clear in-memory state
+        self._orderbooks.clear()
+        self._trades.clear()
 
         self.logger.info("Delta Options Service stopped")
 

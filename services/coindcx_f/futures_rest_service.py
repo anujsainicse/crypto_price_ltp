@@ -208,7 +208,7 @@ class CoinDCXFuturesRESTService(BaseService):
                 await self._handle_backoff('funding', e)
             except Exception as e:
                 self.logger.error(f"Funding unexpected error: {e}")
-                await asyncio.sleep(60)  # Wait 1 minute on error
+                await asyncio.sleep(self.funding_interval)
 
     async def _health_check_loop(self):
         """Periodically log health status of all data types."""
@@ -704,14 +704,12 @@ class CoinDCXFuturesRESTService(BaseService):
                         ttl=self.redis_ttl
                     )
                 else:
-                    # Create placeholder entry (LTP will be updated by LTP poller)
-                    success = self.redis_client.set_price_data(
-                        key=redis_key,
-                        price=0.0,
-                        symbol=symbol,
-                        additional_data=funding_data,
-                        ttl=self.redis_ttl
+                    # Skip writing placeholder - wait for LTP poller to create the entry
+                    # Writing price=0.0 would cause downstream consumers (AOE) to read invalid price
+                    self.logger.debug(
+                        f"Skipping funding update for {base_coin} - no LTP data yet"
                     )
+                    continue
 
                 if success:
                     updated_count += 1

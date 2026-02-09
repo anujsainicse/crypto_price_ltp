@@ -64,15 +64,16 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 |----------|---------|-------------|---------|---------------|
 | **Bybit** | `bybit_spot` | Spot | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
 | **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP |
+| **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
 | **CoinDCX** | `coindcx_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **CoinDCX** | `coindcx_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Funding Rate |
 | **Delta** | `delta_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **Delta** | `delta_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
-| **Delta** | `delta_options` | Options | BTC, ETH (all strikes) | LTP + Greeks |
+| **Delta** | `delta_options` | Options | BTC, ETH (all strikes) | LTP + Greeks + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
-**Total Services**: 10
+**Total Services**: 11
 
 ---
 
@@ -96,12 +97,18 @@ delta_futures:BTC
 hyperliquid_spot:BTC
 hyperliquid_futures:ETH
 
+# Options LTP Keys (full symbol as key)
+bybit_options:BTC-25DEC26-70000-P-USDT
+bybit_options:ETH-28FEB26-4000-C-USDT
+delta_options:C-BTC-106000-241220
+
 # Orderbook Keys
 bybit_spot_ob:BTC
 coindcx_spot_ob:ETH
 coindcx_futures_ob:BTC
 delta_spot_ob:SOL
 delta_futures_ob:BTC
+delta_options_ob:C-BTC-106000-241220
 hyperliquid_spot_ob:BTC
 hyperliquid_futures_ob:BTC
 
@@ -111,6 +118,7 @@ coindcx_spot_trades:ETH
 coindcx_futures_trades:BTC
 delta_spot_trades:SOL
 delta_futures_trades:BTC
+delta_options_trades:C-BTC-106000-241220
 hyperliquid_spot_trades:BTC
 hyperliquid_futures_trades:BTC
 ```
@@ -158,6 +166,38 @@ hyperliquid_futures_trades:BTC
 - Orderbook: 50 levels each side (bids descending, asks ascending)
 - Trades: Last 50 trades in FIFO buffer
 - All keys have 60-second TTL (configurable via `redis_ttl`)
+
+**Options Data (Bybit/Delta):**
+```json
+{
+  "ltp": "1250.50",
+  "mark_price": "1248.20",
+  "bid": "1249.00",
+  "ask": "1251.00",
+  "bid_size": "10.5",
+  "ask_size": "8.2",
+  "delta": "-0.35",
+  "gamma": "0.00012",
+  "vega": "8.50",
+  "theta": "-2.10",
+  "iv": "0.65",
+  "bid_iv": "0.62",
+  "ask_iv": "0.68",
+  "open_interest": "5420",
+  "volume_24h": "1234.56",
+  "turnover_24h": "6789012.34",
+  "high_24h": "1280.00",
+  "low_24h": "1200.00",
+  "price_change_percent": "2.5",
+  "underlying_price": "68000.00",
+  "option_type": "PUT",
+  "underlying": "BTC",
+  "strike_price": "70000",
+  "expiry_date": "25DEC26",
+  "timestamp": "1704628800",
+  "original_symbol": "BTC-25DEC26-70000-P-USDT"
+}
+```
 
 ---
 
@@ -364,7 +404,7 @@ python -m services.bybit_spot
 |------|---------|
 | `main.py` | Entry point, starts web dashboard |
 | `web_dashboard.py` | Flask dashboard for service control |
-| `manager.py` | Service lifecycle management (registers all 10 services) |
+| `manager.py` | Service lifecycle management (registers all 11 services) |
 | `core/redis_client.py` | Redis connection + orderbook/trades storage methods |
 | `core/base_service.py` | Abstract base class for all services |
 | `config/settings.py` | Global settings (Redis, logging) |
@@ -376,13 +416,14 @@ python -m services.bybit_spot
 |---------|------|----------|
 | Bybit Spot | `services/bybit_s/spot_service.py` | LTP + Orderbook + Trades |
 | Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP |
+| Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV (dynamic discovery) |
 | CoinDCX Spot | `services/coindcx_s/spot_service.py` | LTP + Orderbook + Trades |
 | CoinDCX Futures REST | `services/coindcx_f/futures_rest_service.py` | LTP + Orderbook + Trades + Funding (REST-based) |
 | CoinDCX Futures (deprecated) | `services/coindcx_f/futures_ltp_service.py` | LTP (Socket.IO, replaced by REST) |
 | CoinDCX Funding (deprecated) | `services/coindcx_f/funding_rate_service.py` | Funding Rates (replaced by REST) |
 | Delta Spot | `services/delta_s/spot_service.py` | LTP + Orderbook + Trades |
 | Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP + Orderbook + Trades |
-| Delta Options | `services/delta_o/options_service.py` | LTP + Greeks |
+| Delta Options | `services/delta_o/options_service.py` | LTP + Greeks + Orderbook + Trades |
 | HyperLiquid Spot | `services/hyperliquid_s/spot_service.py` | LTP + Orderbook + Trades |
 | HyperLiquid Futures | `services/hyperliquid_p/perpetual_service.py` | LTP + Orderbook + Trades |
 
@@ -470,10 +511,23 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 | Connection Type | WebSocket | REST API | WebSocket |
 | Auto-Reconnect | ✅ | ✅ (exponential backoff) | ✅ |
 
+### Options Services
+| Feature | Bybit Options | Delta Options |
+|---------|---------------|---------------|
+| LTP | ✅ | ✅ |
+| Greeks (delta/gamma/vega/theta) | ✅ | ✅ |
+| IV (Implied Volatility) | ✅ | ✅ |
+| Orderbook | ❌ | ✅ (50 levels) |
+| Trades | ❌ | ✅ (50 trades) |
+| Dynamic Symbol Discovery | ✅ | ✅ |
+| TTL | 60s | 60s |
+| Connection Type | WebSocket | WebSocket |
+| Auto-Reconnect | ✅ | ✅ |
+
 ---
 
-**Last Updated**: January 2026
-**Version**: 2.3.0 (CoinDCX Futures REST service with full market data)
+**Last Updated**: February 2026
+**Version**: 2.4.0 (Delta Options with orderbook and trades support)
 **Part of**: Scalper Bot Ecosystem
 
 **CoinDCX Futures Note**: The new REST-based service (`futures_rest_service.py`) replaces the Socket.IO-based `futures_ltp_service.py` and separate `funding_rate_service.py`. It provides LTP, orderbook, trades, and funding rate data via REST API polling for better stability.

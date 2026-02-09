@@ -53,6 +53,39 @@ bybit:
         - "USDC"
       orderbook_depth: 50
 
+    options:
+      enabled: true
+      auto_start: true
+
+      # API endpoints
+      websocket_url: "wss://stream.bybit.com/v5/public/option"
+      rest_api_url: "https://api.bybit.com/v5/market/instruments-info"
+
+      # Symbol selection (empty = auto-discover all available base coins)
+      base_coins: []
+      use_dynamic_base_coin_discovery: true
+      subscribe_all: false
+      max_symbols_per_asset: 100  # Top 100 by OI per underlying
+      max_active_symbols: 1000
+
+      # Subscription behavior
+      subscription_batch_size: 50
+      subscription_batch_delay: 0.2
+      symbol_refresh_interval: 3600  # 1 hour
+
+      # Connection settings
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+
+      # Redis storage
+      redis_prefix: "bybit_options"
+      redis_ttl: 60
+
+      # Optional orderbook (disabled by default - ticker data only)
+      orderbook_enabled: false
+      orderbook_depth: 25
+      orderbook_redis_prefix: "bybit_options_ob"
+
 coindcx:
   name: "CoinDCX"
   enabled: true
@@ -202,8 +235,17 @@ delta:
       symbol_refresh_interval: 3600  # Refresh symbols every hour (options expire)
       reconnect_interval: 5
       max_reconnect_attempts: 10
+      # Redis - LTP/Ticker
       redis_prefix: "delta_options"
       redis_ttl: 60
+      # Orderbook configuration
+      orderbook_enabled: true
+      orderbook_depth: 50
+      orderbook_redis_prefix: "delta_options_ob"
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "delta_options_trades"
 
     spot:
       enabled: true
@@ -306,3 +348,11 @@ bybit_spot_testnet:
         - "USDC"
         - "BTC"
         - "ETH"
+      # Orderbook configuration
+      orderbook_enabled: true
+      orderbook_depth: 50
+      orderbook_redis_prefix: "bybit_spot_testnet_ob"
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "bybit_spot_testnet_trades"
