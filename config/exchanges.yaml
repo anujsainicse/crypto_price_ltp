@@ -348,3 +348,11 @@ bybit_spot_testnet:
         - "USDC"
         - "BTC"
         - "ETH"
+      # Orderbook configuration
+      orderbook_enabled: true
+      orderbook_depth: 50
+      orderbook_redis_prefix: "bybit_spot_testnet_ob"
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "bybit_spot_testnet_trades"
