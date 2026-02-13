@@ -452,10 +452,10 @@ if time.time() - timestamp > 5:
 
 ## Monitoring Integration
 
-The Monitoring Service (Port 8002) checks price data freshness:
+The Guardian module (built into Trading Backend at port 8000) checks price data freshness:
 
 ```python
-# Monitoring checks timestamp freshness
+# Guardian checks timestamp freshness
 for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
     timestamp = redis_client.hget(key, "timestamp")
     age_seconds = time.time() - int(timestamp)
