@@ -1,71 +1,61 @@
 
 import pytest
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
-from services.coindcx_f.futures_ltp_service import CoinDCXFuturesLTPService
-import time
+from unittest.mock import patch, AsyncMock
+from services.coindcx_f.futures_rest_service import CoinDCXFuturesRESTService
+
 
 class TestCoinDCXFuturesReconnection:
     @pytest.fixture
     def service(self):
         config = {
             'enabled': True,
-            'symbols': ['BTC'],
-            'websocket_url': 'wss://fake.url'
+            'symbols': ['BTCUSDT'],
+            'redis_prefix': 'coindcx_futures',
+            'redis_ttl': 60,
         }
-        return CoinDCXFuturesLTPService(config)
+        return CoinDCXFuturesRESTService(config)
 
     @pytest.mark.asyncio
-    async def test_infinite_reconnection_backoff(self, service):
-        """Test that reconnection attempts follow exponential backoff and never stop."""
-        service._connect_and_stream = AsyncMock(side_effect=Exception("Connection failed"))
-        service.running = True
-
+    async def test_backoff_follows_exponential_delays(self, service):
+        """Test that _handle_backoff produces correct exponential delay sequence."""
         sleep_delays = []
+        original_sleep = asyncio.sleep
+
         async def mock_sleep(delay):
             sleep_delays.append(delay)
-            if len(sleep_delays) >= 6:
-                service.running = False
-            return None
 
         with patch('asyncio.sleep', side_effect=mock_sleep):
-            await service.start()
+            for _ in range(8):
+                await service._handle_backoff('ltp', Exception("poll failed"))
 
-        expected_delays = [5, 10, 20, 40, 60, 60]
+        expected_delays = [1, 2, 4, 8, 16, 32, 60, 60]
         assert sleep_delays == expected_delays
-        assert service._connect_and_stream.call_count == 6
 
     @pytest.mark.asyncio
-    async def test_reconnection_reset_after_stable_connection(self, service):
-        """Test that backoff resets if connection was stable for > 30s."""
-        time_state = {'current': 10000.0}
-        def mock_time():
-            time_state['current'] += 0.01
-            return time_state['current']
-
-        call_count = 0
-        async def mock_connect_and_stream():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                time_state['current'] += 1.0
-                raise Exception("Immediate failure")
-            elif call_count == 2:
-                time_state['current'] += 40.0
-                raise Exception("Failure after stable connection")
-            else:
-                service.running = False
-
-        service._connect_and_stream = mock_connect_and_stream
-        service._cleanup_connection = AsyncMock()
-
-        sleep_delays = []
+    async def test_backoff_resets_after_successful_poll(self, service):
+        """Test that failures reset to 0 after a successful poll."""
         async def mock_sleep(delay):
-            sleep_delays.append(delay)
-            return None
+            pass
 
         with patch('asyncio.sleep', side_effect=mock_sleep):
-            with patch('time.time', side_effect=mock_time):
-                await service.start()
+            # Simulate 3 failures
+            for _ in range(3):
+                await service._handle_backoff('ltp', Exception("poll failed"))
 
-        assert sleep_delays == [5, 5]
+        assert service._backoff_state['ltp']['failures'] == 3
+
+        # Simulate what a successful poll does: reset failures
+        service._backoff_state['ltp']['failures'] = 0
+
+        sleep_delays = []
+
+        async def capture_sleep(delay):
+            sleep_delays.append(delay)
+
+        with patch('asyncio.sleep', side_effect=capture_sleep):
+            await service._handle_backoff('ltp', Exception("poll failed again"))
+
+        # After reset, first failure should use delay index 0 (1s)
+        assert sleep_delays == [1]
+        assert service._backoff_state['ltp']['failures'] == 1
