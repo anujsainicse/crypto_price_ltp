@@ -96,7 +96,7 @@ async def get_status() -> Dict:
         # Get data counts
         data_counts = control.get_all_data_counts()
 
-        # Define service metadata
+        # Define service metadata (must match manager.py service_registry keys)
         services_info = {
             'bybit_spot': {
                 'name': 'Bybit Spot',
@@ -104,17 +104,35 @@ async def get_status() -> Dict:
                 'type': 'spot',
                 'redis_prefix': 'bybit_spot'
             },
-            'coindcx_futures_ltp': {
-                'name': 'CoinDCX Futures LTP',
+            'bybit_futures_orderbook': {
+                'name': 'Bybit Futures Orderbook',
+                'exchange': 'bybit',
+                'type': 'futures',
+                'redis_prefix': 'bybit_futures_ob'
+            },
+            'bybit_options': {
+                'name': 'Bybit Options',
+                'exchange': 'bybit',
+                'type': 'options',
+                'redis_prefix': 'bybit_options'
+            },
+            'coindcx_spot': {
+                'name': 'CoinDCX Spot',
+                'exchange': 'coindcx',
+                'type': 'spot',
+                'redis_prefix': 'coindcx_spot'
+            },
+            'coindcx_futures_rest': {
+                'name': 'CoinDCX Futures REST',
                 'exchange': 'coindcx',
                 'type': 'futures',
                 'redis_prefix': 'coindcx_futures'
             },
-            'coindcx_funding_rate': {
-                'name': 'CoinDCX Funding Rate',
-                'exchange': 'coindcx',
-                'type': 'funding',
-                'redis_prefix': 'coindcx_futures'
+            'delta_spot': {
+                'name': 'Delta Spot',
+                'exchange': 'delta',
+                'type': 'spot',
+                'redis_prefix': 'delta_spot'
             },
             'delta_futures_ltp': {
                 'name': 'Delta Futures LTP',
@@ -138,7 +156,7 @@ async def get_status() -> Dict:
                 'name': 'HyperLiquid Perpetual',
                 'exchange': 'hyperliquid',
                 'type': 'perpetual',
-                'redis_prefix': 'hyperliquid_perp'
+                'redis_prefix': 'hyperliquid_futures'
             },
             'bybit_spot_testnet_spot': {
                 'name': 'Bybit Spot TestNet',

@@ -86,7 +86,6 @@ class TestExponentialBackoff(unittest.TestCase):
             'services/bybit_f/futures_orderbook_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
-            'services/coindcx_f/futures_ltp_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
         ]
 
@@ -197,11 +196,10 @@ class TestInputValidation(unittest.TestCase):
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
-            'services/coindcx_f/funding_rate_service.py',
+            'services/coindcx_f/futures_rest_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
-            'services/coindcx_f/futures_ltp_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
         ]
 
@@ -217,47 +215,16 @@ class TestInputValidation(unittest.TestCase):
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
-            'services/coindcx_f/funding_rate_service.py',
+            'services/coindcx_f/futures_rest_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
-            'services/coindcx_f/futures_ltp_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
         ]
 
         for service_path in services:
             source = read_file(service_path)
             self.assertIn('math.isfinite', source, f"{service_path} should use math.isfinite")
-
-
-class TestSocketIOPingCancellation(unittest.TestCase):
-    """Test Issue #9: Socket.IO ping task cancellation."""
-
-    def test_disconnect_cancels_ping_task(self):
-        """Verify disconnect handler cancels ping task."""
-        source = read_file('services/coindcx_f/futures_ltp_service.py')
-
-        # Should have ping_task.cancel() in disconnect handler
-        self.assertIn('ping_task', source)
-
-        # Find the disconnect handler section
-        self.assertIn('async def disconnect():', source)
-
-        # Should cancel ping task in disconnect
-        lines = source.split('\n')
-        in_disconnect = False
-        found_cancel = False
-        for line in lines:
-            if 'async def disconnect():' in line:
-                in_disconnect = True
-            if in_disconnect:
-                if 'ping_task' in line and 'cancel' in line:
-                    found_cancel = True
-                    break
-                if 'async def ' in line and 'disconnect' not in line:
-                    break  # Left disconnect handler
-
-        self.assertTrue(found_cancel, "ping_task.cancel() should be in disconnect handler")
 
 
 class TestPingTimeout(unittest.TestCase):
@@ -370,8 +337,7 @@ class TestIntegration(unittest.TestCase):
             'services/bybit_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
-            'services/coindcx_f/futures_ltp_service.py',
-            'services/coindcx_f/funding_rate_service.py',
+            'services/coindcx_f/futures_rest_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',

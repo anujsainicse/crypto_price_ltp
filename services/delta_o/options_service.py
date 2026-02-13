@@ -588,7 +588,7 @@ class DeltaOptionsService(BaseService):
             )
 
             if success:
-                self.logger.info(
+                self.logger.debug(
                     f"[REDIS] Stored {symbol}: ${price_float} "
                     f"(Type: {option_info.get('type')}, Strike: {option_info.get('strike')}, "
                     f"IV: {additional_data.get('implied_volatility', 'N/A')})"
@@ -800,7 +800,7 @@ class DeltaOptionsService(BaseService):
             # Store in Redis
             await self._store_trades(symbol)
 
-            self.logger.info(f"Received trade snapshot for {symbol}: {len(trades_data)} trades")
+            self.logger.debug(f"Received trade snapshot for {symbol}: {len(trades_data)} trades")
 
         except Exception as e:
             self.logger.error(f"Error processing trade snapshot: {e}")
