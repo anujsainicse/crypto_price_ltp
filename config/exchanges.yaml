@@ -155,38 +155,6 @@ coindcx:
       api_timeout: 10
       max_connections: 10
 
-    # DEPRECATED: Socket.IO-based LTP service (replaced by futures_rest)
-    futures_ltp:
-      enabled: false
-      auto_start: false
-      websocket_url: "wss://stream.coindcx.com"
-      symbols:
-        - "B-BTC_USDT"
-        - "B-ETH_USDT"
-        - "B-SOL_USDT"
-        - "B-BNB_USDT"
-        - "B-DOGE_USDT"
-      reconnect_interval: 5
-      max_reconnect_attempts: 10
-      redis_prefix: "coindcx_futures"
-      redis_ttl: 60
-
-    # DEPRECATED: Funding rate service (replaced by futures_rest)
-    funding_rate:
-      enabled: false
-      auto_start: false
-      api_url: "https://public.coindcx.com/market_data/v3/current_prices/futures/rt"
-      update_interval: 1800  # 30 minutes
-      symbols:
-        - "B-BTC_USDT"
-        - "B-ETH_USDT"
-        - "B-SOL_USDT"
-        - "B-BNB_USDT"
-        - "B-DOGE_USDT"
-      redis_prefix: "coindcx_futures"
-      api_timeout: 10
-      redis_ttl: 60
-
 delta:
   name: "Delta Exchange India"
   enabled: true

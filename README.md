@@ -124,10 +124,16 @@ GET /api/health
 
 **Available Service IDs:**
 - `bybit_spot`
-- `coindcx_futures_ltp`
-- `coindcx_funding_rate`
+- `bybit_futures_orderbook`
+- `bybit_options`
+- `coindcx_spot`
+- `coindcx_futures_rest`
+- `delta_spot`
 - `delta_futures_ltp`
 - `delta_options`
+- `hyperliquid_spot`
+- `hyperliquid_perpetual`
+- `bybit_spot_testnet_spot`
 
 ### Example API Usage
 
@@ -158,8 +164,7 @@ crypto_price_ltp/
 │   ├── bybit_s/
 │   │   └── spot_service.py
 │   ├── coindcx_f/
-│   │   ├── futures_ltp_service.py
-│   │   └── funding_rate_service.py
+│   │   └── futures_rest_service.py
 │   └── delta_o/
 │       ├── futures_ltp_service.py
 │       └── options_service.py

@@ -46,8 +46,7 @@ File: `services/EXCHANGE_f/futures_ltp_service.py`
 
 Use one of the existing services as a template:
 - **WebSocket**: Copy from `services/delta_f/futures_ltp_service.py`
-- **Socket.IO**: Copy from `services/coindcx_f/futures_ltp_service.py`
-- **REST API**: Copy from `services/coindcx_f/funding_rate_service.py`
+- **REST API**: Copy from `services/coindcx_f/futures_rest_service.py`
 
 **Key things to customize:**
 
@@ -163,7 +162,7 @@ mkdir -p services/delta_f
 ```
 services/delta_f/
 ├── __init__.py
-└── futures_ltp_service.py
+└── futures_rest_service.py
 ```
 
 ### 3. Added Config
@@ -302,7 +301,7 @@ original_symbol: "BTCUSDT"        # Required
 Copy an existing service that uses similar technology:
 - WebSocket → Copy `delta_f`
 - Socket.IO → Copy `coindcx_f`
-- REST API → Copy `coindcx_f/funding_rate_service.py`
+- REST API → Copy `coindcx_f/futures_rest_service.py`
 
 ### 2. Test Standalone First
 Always test your service independently before adding to manager:

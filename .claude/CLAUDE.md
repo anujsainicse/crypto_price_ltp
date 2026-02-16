@@ -63,17 +63,23 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | Exchange | Service | Market Type | Symbols | Data Provided |
 |----------|---------|-------------|---------|---------------|
 | **Bybit** | `bybit_spot` | Spot | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
-| **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP |
+| **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
+| **Bybit** | `bybit_futures_orderbook` | Futures | BTC, ETH, SOL, BNB, DOGE | Orderbook only |
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
-| **CoinDCX** | `coindcx_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
-| **CoinDCX** | `coindcx_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Funding Rate |
-| **Delta** | `delta_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
-| **Delta** | `delta_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
+| **CoinDCX** | `coindcx_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | Orderbook + Trades (LTP from mid_price) |
+| **CoinDCX** | `coindcx_futures_rest` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
+| **Delta** | `delta_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | Orderbook + Trades (LTP from mid_price) |
+| **Delta** | `delta_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Delta** | `delta_options` | Options | BTC, ETH (all strikes) | LTP + Greeks + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
-**Total Services**: 11
+**Total Active Services**: 11
+
+**Notes**:
+- CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Use the `mid_price` field from the orderbook hash for current price.
+- CoinDCX Futures uses REST API polling (not WebSocket) for better stability.
+- Bybit Futures provides orderbook data only (no LTP/trades service).
 
 ---
 
@@ -415,14 +421,13 @@ python -m services.bybit_spot
 | Service | File | Features |
 |---------|------|----------|
 | Bybit Spot | `services/bybit_s/spot_service.py` | LTP + Orderbook + Trades |
-| Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP |
+| Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP + Orderbook + Trades |
+| Bybit Futures OB | `services/bybit_f/futures_orderbook_service.py` | Orderbook only |
 | Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV (dynamic discovery) |
-| CoinDCX Spot | `services/coindcx_s/spot_service.py` | LTP + Orderbook + Trades |
-| CoinDCX Futures REST | `services/coindcx_f/futures_rest_service.py` | LTP + Orderbook + Trades + Funding (REST-based) |
-| CoinDCX Futures (deprecated) | `services/coindcx_f/futures_ltp_service.py` | LTP (Socket.IO, replaced by REST) |
-| CoinDCX Funding (deprecated) | `services/coindcx_f/funding_rate_service.py` | Funding Rates (replaced by REST) |
-| Delta Spot | `services/delta_s/spot_service.py` | LTP + Orderbook + Trades |
-| Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP + Orderbook + Trades |
+| CoinDCX Spot | `services/coindcx_s/spot_service.py` | Orderbook + Trades (Socket.IO) |
+| CoinDCX Futures | `services/coindcx_f/futures_rest_service.py` | LTP + Orderbook + Trades + Funding (REST) |
+| Delta Spot | `services/delta_s/spot_service.py` | Orderbook + Trades |
+| Delta Futures | `services/delta_f/futures_ltp_service.py` | LTP + Orderbook + Trades + Funding |
 | Delta Options | `services/delta_o/options_service.py` | LTP + Greeks + Orderbook + Trades |
 | HyperLiquid Spot | `services/hyperliquid_s/spot_service.py` | LTP + Orderbook + Trades |
 | HyperLiquid Futures | `services/hyperliquid_p/perpetual_service.py` | LTP + Orderbook + Trades |
@@ -493,23 +498,26 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 ### Spot Services
 | Feature | Bybit Spot | CoinDCX Spot | Delta Spot | HyperLiquid Spot |
 |---------|------------|--------------|------------|------------------|
-| LTP | ✅ | ✅ | ✅ | ✅ |
+| LTP | ✅ | ⚠️ (from mid_price) | ⚠️ (from mid_price) | ✅ |
 | Orderbook | ✅ (50 levels) | ✅ (20 levels) | ✅ (50 levels) | ✅ (50 levels) |
 | Trades | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) |
 | Spread/Mid | ✅ | ✅ | ✅ | ✅ |
 | TTL | 60s | 60s | 60s | 60s |
+| Connection | WebSocket | Socket.IO | WebSocket | WebSocket |
 | Auto-Reconnect | ✅ | ✅ | ✅ | ✅ |
 
+**Note**: CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Read `mid_price` from the orderbook hash.
+
 ### Futures/Perpetual Services
-| Feature | Delta Futures | CoinDCX Futures REST | HyperLiquid Futures |
-|---------|---------------|----------------------|---------------------|
-| LTP | ✅ | ✅ (1s polling) | ✅ |
-| Orderbook | ✅ (50 levels) | ✅ (50 levels, 1s polling) | ✅ (50 levels) |
-| Trades | ✅ (50 trades) | ✅ (50 trades, 2s polling) | ✅ (50 trades) |
-| Funding Rate | ✅ | ✅ (30min polling) | ❌ |
-| TTL | 60s | 60s | 60s |
-| Connection Type | WebSocket | REST API | WebSocket |
-| Auto-Reconnect | ✅ | ✅ (exponential backoff) | ✅ |
+| Feature | Bybit Futures OB | Delta Futures | CoinDCX Futures REST | HyperLiquid Futures |
+|---------|------------------|---------------|----------------------|---------------------|
+| LTP | ❌ | ✅ | ✅ (1s polling) | ✅ |
+| Orderbook | ✅ (50 levels) | ✅ (50 levels) | ✅ (50 levels, 1s polling) | ✅ (50 levels) |
+| Trades | ❌ | ✅ (50 trades) | ✅ (50 trades, 2s polling) | ✅ (50 trades) |
+| Funding Rate | ❌ | ✅ | ✅ (30min polling) | ❌ |
+| TTL | 60s | 60s | 60s | 60s |
+| Connection Type | WebSocket | WebSocket | REST API | WebSocket |
+| Auto-Reconnect | ✅ | ✅ | ✅ (exponential backoff) | ✅ |
 
 ### Options Services
 | Feature | Bybit Options | Delta Options |
@@ -527,9 +535,11 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 ---
 
 **Last Updated**: February 2026
-**Version**: 2.4.0 (Delta Options with orderbook and trades support)
+**Version**: 2.5.0 (Cleaned up deprecated services, updated documentation)
 **Part of**: Scalper Bot Ecosystem
 
-**CoinDCX Futures Note**: The new REST-based service (`futures_rest_service.py`) replaces the Socket.IO-based `futures_ltp_service.py` and separate `funding_rate_service.py`. It provides LTP, orderbook, trades, and funding rate data via REST API polling for better stability.
+**CoinDCX Futures Note**: The REST-based service (`futures_rest_service.py`) provides LTP, orderbook, trades, and funding rate data via REST API polling for better stability than WebSocket.
 
-**Migration Note**: HyperLiquid Perpetual service now writes to both new (`hyperliquid_futures*`) and legacy (`hyperliquid_perp*`) Redis keys for backwards compatibility. Legacy key writes can be disabled via `write_legacy_keys: false` in config once downstream consumers have migrated.
+**HyperLiquid Note**: The Perpetual service writes to both new (`hyperliquid_futures*`) and legacy (`hyperliquid_perp*`) Redis keys for backwards compatibility. Legacy key writes can be disabled via `write_legacy_keys: false` in config once downstream consumers have migrated.
+
+**Spot LTP Note**: CoinDCX Spot and Delta Spot do not have dedicated LTP channels. Use the `mid_price` field from the orderbook hash (`coindcx_spot_ob:BTC`, `delta_spot_ob:BTC`) for current price data.

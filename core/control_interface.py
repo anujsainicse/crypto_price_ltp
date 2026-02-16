@@ -22,7 +22,7 @@ class ControlInterface:
         """Send start command for a service.
 
         Args:
-            service_id: Service identifier (e.g., 'bybit_spot', 'coindcx_futures_ltp')
+            service_id: Service identifier (e.g., 'bybit_spot', 'coindcx_futures_rest')
 
         Returns:
             Success status

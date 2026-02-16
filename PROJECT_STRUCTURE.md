@@ -27,10 +27,9 @@ price_ltp/
 │   │   ├── __init__.py
 │   │   └── spot_service.py          # Bybit spot price WebSocket service
 │   │
-│   └── coindcx/                     # CoinDCX Exchange
+│   └── coindcx_f/                   # CoinDCX Futures
 │       ├── __init__.py
-│       ├── futures_ltp_service.py   # CoinDCX futures LTP WebSocket
-│       └── funding_rate_service.py  # CoinDCX funding rate REST API
+│       └── futures_rest_service.py  # CoinDCX futures REST API (LTP + OB + Trades + Funding)
 │
 ├── utils/                           # Utility Functions
 │   ├── __init__.py
@@ -39,8 +38,7 @@ price_ltp/
 ├── logs/                            # Log Files (auto-created)
 │   ├── service_manager.log
 │   ├── bybit-spot.log
-│   ├── coindcx-futures-ltp.log
-│   └── coindcx-funding-rate.log
+│   └── coindcx-futures-rest.log
 │
 ├── manager.py                       # Main service manager/launcher
 ├── requirements.txt                 # Python dependencies
@@ -94,8 +92,7 @@ Each exchange has its own directory with independent services.
 
 **Current Services:**
 - `BybitSpotService` - Bybit spot prices via WebSocket
-- `CoinDCXFuturesLTPService` - CoinDCX futures prices via WebSocket
-- `CoinDCXFundingRateService` - CoinDCX funding rates via REST API
+- `CoinDCXFuturesRESTService` - CoinDCX futures data via REST API (LTP + OB + Trades + Funding)
 
 ### 4. Service Manager (`manager.py`)
 
@@ -236,8 +233,8 @@ Run services standalone for testing:
 # Test Bybit
 PYTHONPATH=. python services/bybit/spot_service.py
 
-# Test CoinDCX LTP
-PYTHONPATH=. python services/coindcx/futures_ltp_service.py
+# Test CoinDCX Futures REST
+PYTHONPATH=. python -m services.coindcx_f.futures_rest_service
 ```
 
 ## Performance Characteristics

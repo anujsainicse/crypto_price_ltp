@@ -129,7 +129,7 @@ pkill -9 -f "manager.py"
 curl -X POST http://localhost:8080/api/service/bybit_spot/start
 
 # Start CoinDCX Futures
-curl -X POST http://localhost:8080/api/service/coindcx_futures_ltp/start
+curl -X POST http://localhost:8080/api/service/coindcx_futures_rest/start
 
 # Start Delta Options
 curl -X POST http://localhost:8080/api/service/delta_options/start
