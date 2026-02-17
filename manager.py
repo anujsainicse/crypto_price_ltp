@@ -21,6 +21,7 @@ from services.hyperliquid_s import HyperLiquidSpotService
 from services.hyperliquid_p import HyperLiquidPerpetualService
 from services.bybit_spot_testnet import BybitSpotTestnetService
 from services.bybit_f import BybitFuturesOrderbookService
+from services.binance_s import BinanceSpotService
 
 
 class ServiceManager:
@@ -230,6 +231,19 @@ class ServiceManager:
                     'config': spot_config
                 }
                 self.logger.info("✓ Bybit Spot TestNet Service loaded")
+
+        elif exchange == 'binance':
+            # Binance Spot Service
+            spot_config = services_config.get('spot', {})
+            if spot_config.get('enabled', False):
+                service = BinanceSpotService(spot_config)
+                self.services.append(service)
+                self.service_registry['binance_spot'] = {
+                    'service': service,
+                    'task': None,
+                    'config': spot_config
+                }
+                self.logger.info("✓ Binance Spot Service loaded")
 
     async def start_service(self, service_id: str) -> bool:
         """Start a specific service.

@@ -17,15 +17,15 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 │                        CRYPTO PRICE LTP (Port 8080)                          │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌──────────────┐  │
-│  │     Bybit     │  │    CoinDCX    │  │     Delta     │  │  HyperLiquid │  │
-│  │   WebSocket   │  │   Socket.IO   │  │   WebSocket   │  │   WebSocket  │  │
-│  ├───────────────┤  ├───────────────┤  ├───────────────┤  ├──────────────┤  │
-│  │ Spot+Testnet  │  │ Spot+Futures  │  │Spot+Fut+Opts  │  │  Spot+Perp   │  │
-│  │ LTP/OB/Trades │  │ LTP/OB/Trades │  │ LTP/OB/Trades │  │ LTP/OB/Trades│  │
-│  └───────┬───────┘  └───────┬───────┘  └───────┬───────┘  └──────┬───────┘  │
-│          │                  │                  │                  │          │
-│          └──────────────────┴──────────────────┴──────────────────┘          │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ │
+│  │   Bybit    │ │  Binance   │ │  CoinDCX   │ │   Delta    │ │ HyperLiquid│ │
+│  │  WebSocket │ │  WebSocket │ │ Socket.IO  │ │  WebSocket │ │  WebSocket │ │
+│  ├────────────┤ ├────────────┤ ├────────────┤ ├────────────┤ ├────────────┤ │
+│  │Spot+Testnet│ │    Spot    │ │Spot+Futures│ │Spt+Fut+Opt│ │ Spot+Perp  │ │
+│  │LTP/OB/Trd │ │LTP/OB/Trd │ │LTP/OB/Trd │ │LTP/OB/Trd │ │LTP/OB/Trd │ │
+│  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ │
+│        │              │              │              │              │         │
+│        └──────────────┴──────────────┴──────────────┴──────────────┘         │
 │                                      │                                       │
 │                                      ▼                                       │
 │                          ┌─────────────────────┐                             │
@@ -66,6 +66,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
 | **Bybit** | `bybit_futures_orderbook` | Futures | BTC, ETH, SOL, BNB, DOGE | Orderbook only |
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
+| **Binance** | `binance_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **CoinDCX** | `coindcx_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | Orderbook + Trades (LTP from mid_price) |
 | **CoinDCX** | `coindcx_futures_rest` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Delta** | `delta_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | Orderbook + Trades (LTP from mid_price) |
@@ -74,12 +75,13 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
-**Total Active Services**: 11
+**Total Active Services**: 12
 
 **Notes**:
 - CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Use the `mid_price` field from the orderbook hash for current price.
 - CoinDCX Futures uses REST API polling (not WebSocket) for better stability.
 - Bybit Futures provides orderbook data only (no LTP/trades service).
+- Binance Spot uses combined WebSocket streams (miniTicker + depth20 + trade) on a single connection. Orderbook is 20 levels (Binance WS max).
 
 ---
 
@@ -96,6 +98,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 ```
 # LTP Keys
 bybit_spot:BTC
+binance_spot:BTC
 coindcx_spot:ETH
 coindcx_futures:BTC
 delta_spot:SOL
@@ -110,6 +113,7 @@ delta_options:C-BTC-106000-241220
 
 # Orderbook Keys
 bybit_spot_ob:BTC
+binance_spot_ob:BTC
 coindcx_spot_ob:ETH
 coindcx_futures_ob:BTC
 delta_spot_ob:SOL
@@ -120,6 +124,7 @@ hyperliquid_futures_ob:BTC
 
 # Trades Keys
 bybit_spot_trades:BTC
+binance_spot_trades:BTC
 coindcx_spot_trades:ETH
 coindcx_futures_trades:BTC
 delta_spot_trades:SOL
@@ -169,7 +174,7 @@ hyperliquid_futures_trades:BTC
 ```
 
 **Notes:**
-- Orderbook: 50 levels each side (bids descending, asks ascending)
+- Orderbook: 50 levels each side (bids descending, asks ascending). Binance Spot: 20 levels (WS max).
 - Trades: Last 50 trades in FIFO buffer
 - All keys have 60-second TTL (configurable via `redis_ttl`)
 
@@ -410,7 +415,7 @@ python -m services.bybit_spot
 |------|---------|
 | `main.py` | Entry point, starts web dashboard |
 | `web_dashboard.py` | Flask dashboard for service control |
-| `manager.py` | Service lifecycle management (registers all 11 services) |
+| `manager.py` | Service lifecycle management (registers all 12 services) |
 | `core/redis_client.py` | Redis connection + orderbook/trades storage methods |
 | `core/base_service.py` | Abstract base class for all services |
 | `config/settings.py` | Global settings (Redis, logging) |
@@ -424,6 +429,7 @@ python -m services.bybit_spot
 | Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP + Orderbook + Trades |
 | Bybit Futures OB | `services/bybit_f/futures_orderbook_service.py` | Orderbook only |
 | Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV (dynamic discovery) |
+| Binance Spot | `services/binance_s/spot_service.py` | LTP + Orderbook (20 levels) + Trades |
 | CoinDCX Spot | `services/coindcx_s/spot_service.py` | Orderbook + Trades (Socket.IO) |
 | CoinDCX Futures | `services/coindcx_f/futures_rest_service.py` | LTP + Orderbook + Trades + Funding (REST) |
 | Delta Spot | `services/delta_s/spot_service.py` | Orderbook + Trades |
@@ -496,15 +502,15 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 ## Service Features Matrix
 
 ### Spot Services
-| Feature | Bybit Spot | CoinDCX Spot | Delta Spot | HyperLiquid Spot |
-|---------|------------|--------------|------------|------------------|
-| LTP | ✅ | ⚠️ (from mid_price) | ⚠️ (from mid_price) | ✅ |
-| Orderbook | ✅ (50 levels) | ✅ (20 levels) | ✅ (50 levels) | ✅ (50 levels) |
-| Trades | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) |
-| Spread/Mid | ✅ | ✅ | ✅ | ✅ |
-| TTL | 60s | 60s | 60s | 60s |
-| Connection | WebSocket | Socket.IO | WebSocket | WebSocket |
-| Auto-Reconnect | ✅ | ✅ | ✅ | ✅ |
+| Feature | Bybit Spot | Binance Spot | CoinDCX Spot | Delta Spot | HyperLiquid Spot |
+|---------|------------|--------------|--------------|------------|------------------|
+| LTP | ✅ | ✅ | ⚠️ (from mid_price) | ⚠️ (from mid_price) | ✅ |
+| Orderbook | ✅ (50 levels) | ✅ (20 levels) | ✅ (20 levels) | ✅ (50 levels) | ✅ (50 levels) |
+| Trades | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) | ✅ (50 trades) |
+| Spread/Mid | ✅ | ✅ | ✅ | ✅ | ✅ |
+| TTL | 60s | 60s | 60s | 60s | 60s |
+| Connection | WebSocket | WebSocket | Socket.IO | WebSocket | WebSocket |
+| Auto-Reconnect | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 **Note**: CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Read `mid_price` from the orderbook hash.
 
@@ -535,7 +541,7 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 ---
 
 **Last Updated**: February 2026
-**Version**: 2.5.0 (Cleaned up deprecated services, updated documentation)
+**Version**: 2.6.0 (Added Binance Spot service)
 **Part of**: Scalper Bot Ecosystem
 
 **CoinDCX Futures Note**: The REST-based service (`futures_rest_service.py`) provides LTP, orderbook, trades, and funding rate data via REST API polling for better stability than WebSocket.
@@ -543,3 +549,5 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 **HyperLiquid Note**: The Perpetual service writes to both new (`hyperliquid_futures*`) and legacy (`hyperliquid_perp*`) Redis keys for backwards compatibility. Legacy key writes can be disabled via `write_legacy_keys: false` in config once downstream consumers have migrated.
 
 **Spot LTP Note**: CoinDCX Spot and Delta Spot do not have dedicated LTP channels. Use the `mid_price` field from the orderbook hash (`coindcx_spot_ob:BTC`, `delta_spot_ob:BTC`) for current price data.
+
+**Binance Spot Note**: Uses combined WebSocket streams (`wss://stream.binance.com:9443/stream?streams=...`) for miniTicker (LTP), partial book depth (20-level orderbook snapshots at 100ms), and trades on a single connection. Binance auto-disconnects after 24 hours; the reconnection loop handles this transparently.

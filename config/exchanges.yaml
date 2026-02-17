@@ -324,3 +324,36 @@ bybit_spot_testnet:
       trades_enabled: true
       trades_limit: 50
       trades_redis_prefix: "bybit_spot_testnet_trades"
+
+binance:
+  name: "Binance"
+  enabled: true
+  services:
+    spot:
+      enabled: true
+      auto_start: true
+      websocket_url: "wss://stream.binance.com:9443"
+      symbols:
+        - "BTCUSDT"
+        - "ETHUSDT"
+        - "SOLUSDT"
+        - "BNBUSDT"
+        - "DOGEUSDT"
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+      redis_prefix: "binance_spot"
+      redis_ttl: 60
+      # Quote currencies to strip from symbols (order matters - longest first)
+      quote_currencies:
+        - "USDT"
+        - "USDC"
+        - "BTC"
+        - "ETH"
+      # Orderbook configuration (Binance partial depth max: 20 levels)
+      orderbook_enabled: true
+      orderbook_depth: 20
+      orderbook_redis_prefix: "binance_spot_ob"
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "binance_spot_trades"
