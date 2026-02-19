@@ -204,6 +204,7 @@ class ControlInterface:
         prefixes = [
             'bybit_spot',
             'bybit_spot_testnet',
+            'bybit_futures_testnet',
             'coindcx_futures',
             'delta_futures',
             'delta_options',

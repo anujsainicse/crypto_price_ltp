@@ -23,13 +23,57 @@ price_ltp/
 ├── services/                        # Exchange Services
 │   ├── __init__.py
 │   │
-│   ├── bybit/                       # Bybit Exchange
+│   ├── bybit_s/                     # Bybit Spot
 │   │   ├── __init__.py
-│   │   └── spot_service.py          # Bybit spot price WebSocket service
+│   │   └── spot_service.py          # Bybit spot WebSocket (LTP + OB + Trades)
 │   │
-│   └── coindcx_f/                   # CoinDCX Futures
+│   ├── bybit_spot_testnet/          # Bybit Spot Testnet
+│   │   ├── __init__.py
+│   │   └── spot_testnet_service.py  # Bybit testnet WebSocket (LTP + OB + Trades)
+│   │
+│   ├── bybit_f/                     # Bybit Futures
+│   │   ├── __init__.py
+│   │   └── futures_orderbook_service.py  # Bybit futures WebSocket (Orderbook only)
+│   │
+│   ├── bybit_f_testnet/             # Bybit Futures Testnet
+│   │   ├── __init__.py
+│   │   └── futures_testnet_service.py  # Bybit futures testnet WebSocket (LTP + OB + Trades + Funding)
+│   │
+│   ├── bybit_o/                     # Bybit Options
+│   │   ├── __init__.py
+│   │   └── options_service.py       # Bybit options WebSocket (LTP + Greeks + IV)
+│   │
+│   ├── binance_s/                   # Binance Spot
+│   │   ├── __init__.py
+│   │   └── spot_service.py          # Binance spot combined streams (LTP + OB + Trades)
+│   │
+│   ├── coindcx_s/                   # CoinDCX Spot
+│   │   ├── __init__.py
+│   │   └── spot_service.py          # CoinDCX spot Socket.IO (OB + Trades)
+│   │
+│   ├── coindcx_f/                   # CoinDCX Futures
+│   │   ├── __init__.py
+│   │   └── futures_rest_service.py  # CoinDCX futures REST API (LTP + OB + Trades + Funding)
+│   │
+│   ├── delta_s/                     # Delta Spot
+│   │   ├── __init__.py
+│   │   └── spot_service.py          # Delta spot WebSocket (OB + Trades)
+│   │
+│   ├── delta_f/                     # Delta Futures
+│   │   ├── __init__.py
+│   │   └── futures_ltp_service.py   # Delta futures WebSocket (LTP + OB + Trades + Funding)
+│   │
+│   ├── delta_o/                     # Delta Options
+│   │   ├── __init__.py
+│   │   └── options_service.py       # Delta options WebSocket (LTP + Greeks + OB + Trades)
+│   │
+│   ├── hyperliquid_s/               # HyperLiquid Spot
+│   │   ├── __init__.py
+│   │   └── spot_service.py          # HyperLiquid spot WebSocket (LTP + OB + Trades)
+│   │
+│   └── hyperliquid_p/               # HyperLiquid Perpetual
 │       ├── __init__.py
-│       └── futures_rest_service.py  # CoinDCX futures REST API (LTP + OB + Trades + Funding)
+│       └── perpetual_service.py     # HyperLiquid perpetual WebSocket (LTP + OB + Trades)
 │
 ├── utils/                           # Utility Functions
 │   ├── __init__.py
@@ -38,7 +82,18 @@ price_ltp/
 ├── logs/                            # Log Files (auto-created)
 │   ├── service_manager.log
 │   ├── bybit-spot.log
-│   └── coindcx-futures-rest.log
+│   ├── bybit-spot-testnet.log
+│   ├── bybit-futures-orderbook.log
+│   ├── bybit-futures-testnet.log
+│   ├── bybit-options.log
+│   ├── binance-spot.log
+│   ├── coindcx-spot.log
+│   ├── coindcx-futures-rest.log
+│   ├── delta-spot.log
+│   ├── delta-futures-ltp.log
+│   ├── delta-options.log
+│   ├── hyperliquid-spot.log
+│   └── hyperliquid-perpetual.log
 │
 ├── manager.py                       # Main service manager/launcher
 ├── requirements.txt                 # Python dependencies
@@ -91,8 +146,19 @@ Each exchange has its own directory with independent services.
 - **REST API Services**: Periodic data fetching (funding rates)
 
 **Current Services:**
-- `BybitSpotService` - Bybit spot prices via WebSocket
-- `CoinDCXFuturesRESTService` - CoinDCX futures data via REST API (LTP + OB + Trades + Funding)
+- `BybitSpotService` - Bybit spot prices via WebSocket (LTP + OB + Trades)
+- `BybitSpotTestnetService` - Bybit testnet spot prices via WebSocket (LTP + OB + Trades)
+- `BybitFuturesOrderbookService` - Bybit futures orderbook via WebSocket
+- `BybitFuturesTestnetService` - Bybit futures testnet via WebSocket (LTP + OB + Trades + Funding Rate)
+- `BybitOptionsService` - Bybit options LTP + Greeks + IV via WebSocket
+- `BinanceSpotService` - Binance spot prices via combined WebSocket streams (LTP + OB + Trades)
+- `CoinDCXSpotService` - CoinDCX spot orderbook + trades via Socket.IO
+- `CoinDCXFuturesRESTService` - CoinDCX futures via REST API (LTP + OB + Trades + Funding)
+- `DeltaSpotService` - Delta spot orderbook + trades via WebSocket
+- `DeltaFuturesLTPService` - Delta futures LTP + OB + Trades + Funding via WebSocket
+- `DeltaOptionsService` - Delta options LTP + Greeks + OB + Trades via WebSocket
+- `HyperLiquidSpotService` - HyperLiquid spot prices via WebSocket (LTP + OB + Trades)
+- `HyperLiquidPerpetualService` - HyperLiquid perpetual prices via WebSocket (LTP + OB + Trades)
 
 ### 4. Service Manager (`manager.py`)
 
@@ -106,7 +172,7 @@ Each exchange has its own directory with independent services.
 ```
 Exchange API/WebSocket
         ↓
-Service (Bybit/CoinDCX)
+Service (Bybit/Binance/CoinDCX/Delta/HyperLiquid)
         ↓
 Redis Client
         ↓
@@ -230,8 +296,11 @@ estimated_funding_rate: "0.00012"  # CoinDCX only
 Run services standalone for testing:
 
 ```bash
-# Test Bybit
-PYTHONPATH=. python services/bybit/spot_service.py
+# Test Bybit Spot
+PYTHONPATH=. python services/bybit_s/spot_service.py
+
+# Test Binance Spot
+PYTHONPATH=. python services/binance_s/spot_service.py
 
 # Test CoinDCX Futures REST
 PYTHONPATH=. python -m services.coindcx_f.futures_rest_service

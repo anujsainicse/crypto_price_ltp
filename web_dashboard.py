@@ -164,6 +164,12 @@ async def get_status() -> Dict:
                 'type': 'spot',
                 'redis_prefix': 'bybit_spot_testnet'
             },
+            'bybit_futures_testnet_orderbook': {
+                'name': 'Bybit Futures TestNet',
+                'exchange': 'bybit_futures_testnet',
+                'type': 'futures',
+                'redis_prefix': 'bybit_futures_testnet'
+            },
             'binance_spot': {
                 'name': 'Binance Spot',
                 'exchange': 'binance',
