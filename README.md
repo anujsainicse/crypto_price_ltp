@@ -128,6 +128,7 @@ GET /api/health
 - `bybit_spot`
 - `bybit_spot_testnet_spot`
 - `bybit_futures_orderbook`
+- `bybit_futures_testnet_orderbook`
 - `bybit_options`
 - `binance_spot`
 - `coindcx_spot`

@@ -85,6 +85,7 @@ class TestExponentialBackoff(unittest.TestCase):
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
@@ -105,6 +106,7 @@ class TestExponentialBackoff(unittest.TestCase):
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/hyperliquid_s/spot_service.py',
         ]
 
@@ -157,6 +159,7 @@ class TestWebSocketCleanup(unittest.TestCase):
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
@@ -200,6 +203,7 @@ class TestInputValidation(unittest.TestCase):
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/coindcx_f/futures_rest_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',
@@ -220,6 +224,7 @@ class TestInputValidation(unittest.TestCase):
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/coindcx_f/futures_rest_service.py',
             'services/delta_o/options_service.py',
             'services/hyperliquid_s/spot_service.py',
@@ -243,6 +248,7 @@ class TestPingTimeout(unittest.TestCase):
             'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
@@ -260,6 +266,7 @@ class TestPingTimeout(unittest.TestCase):
             'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/hyperliquid_s/spot_service.py',
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
@@ -310,6 +317,7 @@ class TestCrossedOrderbookCleanup(unittest.TestCase):
         """Verify redis key is deleted when orderbook is crossed."""
         services = [
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
             'services/bybit_s/spot_service.py',
             'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
@@ -351,6 +359,7 @@ class TestIntegration(unittest.TestCase):
             'services/hyperliquid_p/perpetual_service.py',
             'services/bybit_spot_testnet/spot_testnet_service.py',
             'services/bybit_f/futures_orderbook_service.py',
+            'services/bybit_f_testnet/futures_testnet_service.py',
         ]
 
         for file_path in files:
