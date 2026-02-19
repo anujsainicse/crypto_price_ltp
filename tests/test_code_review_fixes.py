@@ -79,6 +79,7 @@ class TestExponentialBackoff(unittest.TestCase):
         """Verify backoff_delays are defined in all services."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
@@ -99,6 +100,7 @@ class TestExponentialBackoff(unittest.TestCase):
         """Verify backoff is used in reconnection logic."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
@@ -150,6 +152,7 @@ class TestWebSocketCleanup(unittest.TestCase):
         """Verify self.websocket = None is in exception handling."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
@@ -192,6 +195,7 @@ class TestInputValidation(unittest.TestCase):
         """Verify math module is imported for validation."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
@@ -211,6 +215,7 @@ class TestInputValidation(unittest.TestCase):
         """Verify math.isfinite is used for price validation."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/coindcx_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
@@ -234,6 +239,7 @@ class TestPingTimeout(unittest.TestCase):
         """Verify ping_timeout=30 is used."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
@@ -250,6 +256,7 @@ class TestPingTimeout(unittest.TestCase):
         """Verify ping_timeout is not 10."""
         services = [
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/bybit_f/futures_orderbook_service.py',
@@ -304,6 +311,7 @@ class TestCrossedOrderbookCleanup(unittest.TestCase):
         services = [
             'services/bybit_f/futures_orderbook_service.py',
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_s/spot_service.py',
             'services/coindcx_s/spot_service.py',
             'services/hyperliquid_s/spot_service.py',
@@ -335,6 +343,7 @@ class TestIntegration(unittest.TestCase):
             'manager.py',
             'web_dashboard.py',
             'services/bybit_s/spot_service.py',
+            'services/binance_s/spot_service.py',
             'services/delta_f/futures_ltp_service.py',
             'services/delta_o/options_service.py',
             'services/coindcx_f/futures_rest_service.py',

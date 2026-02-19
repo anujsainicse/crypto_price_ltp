@@ -5,7 +5,7 @@ A production-ready system for monitoring cryptocurrency prices, funding rates, a
 ## Features
 
 ### Core Features
-- **Multi-Exchange Support**: Bybit, CoinDCX, Delta Exchange
+- **Multi-Exchange Support**: Bybit, Binance, CoinDCX, Delta Exchange, HyperLiquid
 - **Real-Time Data**: WebSocket streaming for instant price updates
 - **Options Trading Data**: Delta Exchange options with Greeks (Delta, Gamma, Vega, Theta)
 - **Funding Rates**: Automatic tracking of futures funding rates
@@ -23,11 +23,13 @@ A production-ready system for monitoring cryptocurrency prices, funding rates, a
 
 ## Supported Exchanges
 
-| Exchange | Spot | Futures | Options | Funding Rate |
-|----------|------|---------|---------|--------------|
-| Bybit    | ✅   | -       | -       | -            |
-| CoinDCX  | -    | ✅      | -       | ✅           |
-| Delta    | -    | ✅      | ✅      | -            |
+| Exchange    | Spot | Futures | Options | Funding Rate |
+|-------------|------|---------|---------|--------------|
+| Bybit       | ✅   | ✅      | ✅      | -            |
+| Binance     | ✅   | -       | -       | -            |
+| CoinDCX     | ✅   | ✅      | -       | ✅           |
+| Delta       | ✅   | ✅      | ✅      | ✅           |
+| HyperLiquid | ✅   | ✅      | -       | -            |
 
 ## Quick Start
 
@@ -124,8 +126,10 @@ GET /api/health
 
 **Available Service IDs:**
 - `bybit_spot`
+- `bybit_spot_testnet_spot`
 - `bybit_futures_orderbook`
 - `bybit_options`
+- `binance_spot`
 - `coindcx_spot`
 - `coindcx_futures_rest`
 - `delta_spot`
@@ -133,7 +137,6 @@ GET /api/health
 - `delta_options`
 - `hyperliquid_spot`
 - `hyperliquid_perpetual`
-- `bybit_spot_testnet_spot`
 
 ### Example API Usage
 

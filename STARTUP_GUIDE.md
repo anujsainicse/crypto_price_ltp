@@ -60,10 +60,17 @@ Click the **START** button on any service you want to run:
 
 **Available Services:**
 - **Bybit Spot** - Real-time spot prices (BTC, ETH, SOL, BNB, DOGE)
-- **CoinDCX Futures LTP** - Futures last traded prices
-- **CoinDCX Funding Rate** - Funding rates (updates every 30 min)
-- **Delta Futures LTP** - Delta Exchange futures prices
-- **Delta Options** - Options prices with Greeks (Delta, Gamma, Vega, Theta, IV)
+- **Bybit Spot Testnet** - Testnet spot prices (BTC, ETH, SOL, BNB, DOGE)
+- **Bybit Futures Orderbook** - Futures orderbook data (BTC, ETH, SOL, BNB, DOGE)
+- **Bybit Options** - Options LTP + Greeks + IV (dynamic symbol discovery)
+- **Binance Spot** - Real-time spot prices via combined streams (BTC, ETH, SOL, BNB, DOGE)
+- **CoinDCX Spot** - Spot orderbook + trades (BTC, ETH, SOL, BNB, DOGE)
+- **CoinDCX Futures REST** - Futures LTP + orderbook + trades + funding rates
+- **Delta Spot** - Spot orderbook + trades (BTC, ETH, SOL, BNB, DOGE)
+- **Delta Futures LTP** - Futures LTP + orderbook + trades + funding rates
+- **Delta Options** - Options LTP + Greeks + orderbook + trades
+- **HyperLiquid Spot** - Real-time spot prices (BTC, ETH, SOL, BNB, DOGE)
+- **HyperLiquid Perpetual** - Perpetual futures LTP + orderbook + trades
 
 The service will start within 2-3 seconds and status will change to **RUNNING** (green badge).
 
@@ -173,13 +180,22 @@ All price data is stored in Redis. You can access it in several ways:
 redis-cli KEYS "*"
 
 # Get Bybit BTC spot price
-redis-cli HGETALL bybit_spot:BTCUSDT
+redis-cli HGETALL bybit_spot:BTC
+
+# Get Binance BTC spot price
+redis-cli HGETALL binance_spot:BTC
 
 # Get CoinDCX futures data
-redis-cli HGETALL coindcx_futures:B-BTC_USDT
+redis-cli HGETALL coindcx_futures:BTC
+
+# Get Delta futures data
+redis-cli HGETALL delta_futures:BTC
 
 # Get Delta options data
 redis-cli HGETALL delta_options:C-BTC-108200-211025
+
+# Get HyperLiquid spot price
+redis-cli HGETALL hyperliquid_spot:BTC
 
 # Monitor real-time updates
 redis-cli MONITOR
@@ -228,8 +244,11 @@ tail -f logs/web_dashboard.log
 **Individual Services:**
 ```bash
 tail -f logs/bybit-spot.log
-tail -f logs/coindcx-futures-ltp.log
+tail -f logs/binance-spot.log
+tail -f logs/coindcx-futures-rest.log
+tail -f logs/delta-futures-ltp.log
 tail -f logs/delta-options.log
+tail -f logs/hyperliquid-spot.log
 ```
 
 ### Check System Health
