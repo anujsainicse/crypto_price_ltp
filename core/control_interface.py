@@ -206,7 +206,8 @@ class ControlInterface:
             'bybit_spot_testnet',
             'coindcx_futures',
             'delta_futures',
-            'delta_options'
+            'delta_options',
+            'binance_spot'
         ]
 
         counts = {}
