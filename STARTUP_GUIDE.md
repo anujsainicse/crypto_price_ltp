@@ -64,6 +64,7 @@ Click the **START** button on any service you want to run:
 - **Bybit Futures Orderbook** - Futures orderbook data (BTC, ETH, SOL, BNB, DOGE)
 - **Bybit Futures Testnet** - Testnet futures LTP + orderbook + trades + funding rate (BTC, ETH, SOL, BNB, DOGE)
 - **Bybit Options** - Options LTP + Greeks + IV (dynamic symbol discovery)
+- **Bybit Options Testnet** - Testnet options LTP + Greeks + IV (dynamic discovery, auto_start: off)
 - **Binance Spot** - Real-time spot prices via combined streams (BTC, ETH, SOL, BNB, DOGE)
 - **CoinDCX Spot** - Spot orderbook + trades (BTC, ETH, SOL, BNB, DOGE)
 - **CoinDCX Futures REST** - Futures LTP + orderbook + trades + funding rates

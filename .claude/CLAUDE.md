@@ -67,6 +67,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Bybit** | `bybit_futures_orderbook` | Futures | BTC, ETH, SOL, BNB, DOGE | Orderbook only |
 | **Bybit** | `bybit_futures_testnet` | Futures (Testnet) | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
+| **Bybit** | `bybit_options_testnet` | Options (Testnet) | All available (dynamic) | LTP + Greeks + IV |
 | **Binance** | `binance_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **CoinDCX** | `coindcx_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | Orderbook + Trades (LTP from mid_price) |
 | **CoinDCX** | `coindcx_futures_rest` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
@@ -76,7 +77,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
-**Total Active Services**: 13
+**Total Active Services**: 14
 
 **Notes**:
 - CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Use the `mid_price` field from the orderbook hash for current price.
@@ -434,6 +435,7 @@ python -m services.bybit_spot
 | Bybit Futures OB | `services/bybit_f/futures_orderbook_service.py` | Orderbook only |
 | Bybit Futures Testnet | `services/bybit_f_testnet/futures_testnet_service.py` | LTP + Orderbook + Trades + Funding Rate |
 | Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV (dynamic discovery) |
+| Bybit Options Testnet | `services/bybit_o_testnet/options_testnet_service.py` | LTP + Greeks + IV (dynamic discovery, testnet) |
 | Binance Spot | `services/binance_s/spot_service.py` | LTP + Orderbook (20 levels) + Trades |
 | CoinDCX Spot | `services/coindcx_s/spot_service.py` | Orderbook + Trades (Socket.IO) |
 | CoinDCX Futures | `services/coindcx_f/futures_rest_service.py` | LTP + Orderbook + Trades + Funding (REST) |
@@ -546,7 +548,7 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 ---
 
 **Last Updated**: February 2026
-**Version**: 2.6.0 (Added Binance Spot service)
+**Version**: 2.7.0 (Added Bybit Options Testnet service)
 **Part of**: Scalper Bot Ecosystem
 
 **CoinDCX Futures Note**: The REST-based service (`futures_rest_service.py`) provides LTP, orderbook, trades, and funding rate data via REST API polling for better stability than WebSocket.

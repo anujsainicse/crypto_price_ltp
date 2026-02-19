@@ -61,6 +61,12 @@ SERVICE_REGISTRY = {
         'exchange': 'bybit_futures_testnet',
         'service_key': 'futures_orderbook',
     },
+    'bybit_options_testnet': {
+        'module': 'services.bybit_o_testnet',
+        'class': 'BybitOptionsTestnetService',
+        'exchange': 'bybit_options_testnet',
+        'service_key': 'options',
+    },
     'bybit_options': {
         'module': 'services.bybit_o',
         'class': 'BybitOptionsService',

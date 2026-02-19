@@ -205,6 +205,7 @@ class ControlInterface:
             'bybit_spot',
             'bybit_spot_testnet',
             'bybit_futures_testnet',
+            'bybit_options_testnet',
             'coindcx_futures',
             'delta_futures',
             'delta_options',
