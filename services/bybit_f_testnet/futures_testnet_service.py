@@ -357,12 +357,22 @@ class BybitFuturesTestnetService(BaseService):
                 spread = best_ask - best_bid
 
                 if spread < 0:
-                    self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
-                    del self._orderbooks[symbol]  # Force fresh snapshot on next reconnect
+                    self.logger.warning(
+                        f"Crossed orderbook for {symbol}: spread={spread:.6f}. "
+                        f"Clearing state and forcing reconnect for fresh snapshots."
+                    )
+                    del self._orderbooks[symbol]
 
                     # Clear stale Redis data immediately
                     redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
                     self.redis_client.delete_key(redis_key)
+
+                    # Close the WebSocket so _connect_and_stream exits and start()
+                    # immediately reconnects, obtaining fresh snapshots for all symbols.
+                    # Without this, delta messages continue arriving but silently
+                    # early-return at the "delta before snapshot" guard indefinitely.
+                    if self.websocket:
+                        await self.websocket.close()
                     return
 
                 mid_price = (best_bid + best_ask) / 2
