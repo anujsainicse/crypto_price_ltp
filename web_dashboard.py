@@ -206,7 +206,7 @@ async def get_status() -> Dict:
             exchange = service['exchange']
             if exchange not in exchanges:
                 exchanges[exchange] = {
-                    'name': exchange.title(),
+                    'name': exchange.replace('_', ' ').title(),
                     'services': [],
                     'total_data_points': 0
                 }
