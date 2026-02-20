@@ -28,6 +28,12 @@
     --type-options: #fbbf24;
     --type-perpetual: #22d3ee;
 
+    /* Data type badges */
+    --badge-ltp: #34d399;
+    --badge-ob: #38bdf8;
+    --badge-trades: #fb923c;
+    --badge-funding: #c084fc;
+
     /* Buttons */
     --btn-start: #22c55e;
     --btn-start-hover: #16a34a;
@@ -478,6 +484,64 @@ body {
 .service-type.perpetual {
     color: var(--type-perpetual);
     background: rgba(34, 211, 238, 0.12);
+}
+
+/* Data Type Badges */
+.data-badges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.data-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    transition: opacity 0.3s ease;
+}
+
+.data-badge.dimmed {
+    opacity: 0.35;
+}
+
+.data-badge.badge-ltp {
+    color: var(--badge-ltp);
+    background: rgba(52, 211, 153, 0.12);
+}
+
+.data-badge.badge-ltp.active {
+    background: rgba(52, 211, 153, 0.25);
+}
+
+.data-badge.badge-ob {
+    color: var(--badge-ob);
+    background: rgba(56, 189, 248, 0.12);
+}
+
+.data-badge.badge-ob.active {
+    background: rgba(56, 189, 248, 0.25);
+}
+
+.data-badge.badge-trades {
+    color: var(--badge-trades);
+    background: rgba(251, 146, 60, 0.12);
+}
+
+.data-badge.badge-trades.active {
+    background: rgba(251, 146, 60, 0.25);
+}
+
+.data-badge.badge-funding {
+    color: var(--badge-funding);
+    background: rgba(192, 132, 252, 0.12);
+}
+
+.data-badge.badge-funding.active {
+    background: rgba(192, 132, 252, 0.25);
 }
 
 /* Status Indicator */

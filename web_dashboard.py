@@ -58,79 +58,93 @@ def _get_services_info() -> Dict:
             'name': 'Bybit Spot',
             'exchange': 'bybit',
             'type': 'spot',
-            'redis_prefix': 'bybit_spot'
+            'redis_prefix': 'bybit_spot',
+            'data_types': ['ltp', 'orderbook', 'trades']
         },
         'bybit_futures_orderbook': {
             'name': 'Bybit Futures Orderbook',
             'exchange': 'bybit',
             'type': 'futures',
-            'redis_prefix': 'bybit_futures_ob'
+            'redis_prefix': 'bybit_futures_ob',
+            'data_types': ['orderbook'],
+            'ob_is_base_key': True
         },
         'bybit_options': {
             'name': 'Bybit Options',
             'exchange': 'bybit',
             'type': 'options',
-            'redis_prefix': 'bybit_options'
+            'redis_prefix': 'bybit_options',
+            'data_types': ['ltp']
         },
         'coindcx_spot': {
             'name': 'CoinDCX Spot',
             'exchange': 'coindcx',
             'type': 'spot',
-            'redis_prefix': 'coindcx_spot'
+            'redis_prefix': 'coindcx_spot',
+            'data_types': ['orderbook', 'trades']
         },
         'coindcx_futures_rest': {
             'name': 'CoinDCX Futures REST',
             'exchange': 'coindcx',
             'type': 'futures',
-            'redis_prefix': 'coindcx_futures'
+            'redis_prefix': 'coindcx_futures',
+            'data_types': ['ltp', 'orderbook', 'trades', 'funding']
         },
         'delta_spot': {
             'name': 'Delta Spot',
             'exchange': 'delta',
             'type': 'spot',
-            'redis_prefix': 'delta_spot'
+            'redis_prefix': 'delta_spot',
+            'data_types': ['orderbook', 'trades']
         },
         'delta_futures_ltp': {
             'name': 'Delta Futures LTP',
             'exchange': 'delta',
             'type': 'futures',
-            'redis_prefix': 'delta_futures'
+            'redis_prefix': 'delta_futures',
+            'data_types': ['ltp', 'orderbook', 'trades', 'funding']
         },
         'delta_options': {
             'name': 'Delta Options',
             'exchange': 'delta',
             'type': 'options',
-            'redis_prefix': 'delta_options'
+            'redis_prefix': 'delta_options',
+            'data_types': ['ltp', 'orderbook', 'trades']
         },
         'hyperliquid_spot': {
             'name': 'HyperLiquid Spot',
             'exchange': 'hyperliquid',
             'type': 'spot',
-            'redis_prefix': 'hyperliquid_spot'
+            'redis_prefix': 'hyperliquid_spot',
+            'data_types': ['ltp', 'orderbook', 'trades']
         },
         'hyperliquid_perpetual': {
             'name': 'HyperLiquid Perpetual',
             'exchange': 'hyperliquid',
             'type': 'perpetual',
-            'redis_prefix': 'hyperliquid_futures'
+            'redis_prefix': 'hyperliquid_futures',
+            'data_types': ['ltp', 'orderbook', 'trades']
         },
         'bybit_spot_testnet_spot': {
             'name': 'Bybit Spot TestNet',
             'exchange': 'bybit_spot_testnet',
             'type': 'spot',
-            'redis_prefix': 'bybit_spot_testnet'
+            'redis_prefix': 'bybit_spot_testnet',
+            'data_types': ['ltp', 'orderbook', 'trades']
         },
         'bybit_futures_testnet_orderbook': {
             'name': 'Bybit Futures TestNet',
             'exchange': 'bybit_futures_testnet',
             'type': 'futures',
-            'redis_prefix': 'bybit_futures_testnet'
+            'redis_prefix': 'bybit_futures_testnet',
+            'data_types': ['ltp', 'orderbook', 'trades', 'funding']
         },
         'binance_spot': {
             'name': 'Binance Spot',
             'exchange': 'binance',
             'type': 'spot',
-            'redis_prefix': 'binance_spot'
+            'redis_prefix': 'binance_spot',
+            'data_types': ['ltp', 'orderbook', 'trades']
         }
     }
 
@@ -179,8 +193,8 @@ async def get_status() -> Dict:
         # Get service statuses
         statuses = control.get_all_services_status()
 
-        # Get data counts
-        data_counts = control.get_all_data_counts()
+        # Get per-type data counts breakdown
+        data_breakdown = control.get_all_data_counts_breakdown()
 
         # Service metadata from single source of truth
         services_info = _get_services_info()
@@ -189,6 +203,29 @@ async def get_status() -> Dict:
         services = []
         for service_id, info in services_info.items():
             status_data = statuses.get(service_id, {})
+            prefix = info['redis_prefix']
+            counts = data_breakdown.get(prefix, {'ltp': 0, 'orderbook': 0, 'trades': 0})
+
+            # For bybit_futures_orderbook, base keys ARE orderbook data
+            if info.get('ob_is_base_key'):
+                data_counts_detail = {
+                    'ltp': 0,
+                    'orderbook': counts['ltp'],  # base keys are orderbook
+                    'trades': 0,
+                }
+            else:
+                data_counts_detail = {
+                    'ltp': counts['ltp'],
+                    'orderbook': counts['orderbook'],
+                    'trades': counts['trades'],
+                }
+
+            # Funding is a field within LTP hash, active when LTP data exists
+            if 'funding' in info.get('data_types', []):
+                data_counts_detail['funding'] = data_counts_detail['ltp']
+
+            total = sum(data_counts_detail.values())
+
             service = {
                 'id': service_id,
                 'name': info['name'],
@@ -196,7 +233,9 @@ async def get_status() -> Dict:
                 'type': info['type'],
                 'status': status_data.get('status', 'unknown'),
                 'last_update': status_data.get('last_update'),
-                'data_count': data_counts.get(info['redis_prefix'], 0)
+                'data_count': total,
+                'data_counts': data_counts_detail,
+                'data_types': info.get('data_types', [])
             }
             services.append(service)
 

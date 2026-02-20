@@ -13,6 +13,13 @@ const CONFIG = {
     SEARCH_DEBOUNCE: 300,
 };
 
+const DATA_TYPE_CONFIG = {
+    ltp:       { label: 'LTP',     cssClass: 'badge-ltp' },
+    orderbook: { label: 'OB',      cssClass: 'badge-ob' },
+    trades:    { label: 'TRADES',  cssClass: 'badge-trades' },
+    funding:   { label: 'FUNDING', cssClass: 'badge-funding' },
+};
+
 // ==================== State ====================
 
 const state = {
@@ -208,8 +215,32 @@ class UIRenderer {
         typeEl.className = `service-type ${service.type}`;
         typeEl.textContent = service.type;
 
+        // Data type badges
+        const badgesContainer = document.createElement('div');
+        badgesContainer.className = 'data-badges';
+
+        const dataTypes = service.data_types || [];
+        const dataCounts = service.data_counts || {};
+
+        for (const dt of dataTypes) {
+            const cfg = DATA_TYPE_CONFIG[dt];
+            if (!cfg) continue;
+
+            const badge = document.createElement('span');
+            const count = dataCounts[dt] || 0;
+            const isActive = dt === 'funding' ? (dataCounts.ltp || 0) > 0 : count > 0;
+
+            badge.className = `data-badge ${cfg.cssClass} ${isActive ? 'active' : 'dimmed'}`;
+            badge.textContent = cfg.label;
+            badge.dataset.dataType = dt;
+            badgesContainer.appendChild(badge);
+        }
+
         info.appendChild(nameEl);
         info.appendChild(typeEl);
+        info.appendChild(badgesContainer);
+
+        card.dataset.dataTypes = dataTypes.join(' ');
 
         // Status indicator
         const statusIndicator = document.createElement('div');
@@ -231,7 +262,7 @@ class UIRenderer {
         // Details
         const details = document.createElement('div');
         details.className = 'service-details';
-        details.appendChild(this.createDetailRow('Data Points', service.data_count || 0));
+        details.appendChild(this.createDetailRow('Data', this.formatDataBreakdown(dataTypes, dataCounts)));
         if (service.last_update) {
             details.appendChild(this.createDetailRow('Updated', this.formatTime(service.last_update)));
         }
@@ -326,10 +357,22 @@ class UIRenderer {
             text.textContent = service.status;
         }
 
-        // Update data count
+        // Update data badges
+        const badges = card.querySelectorAll('.data-badge');
+        const dataCounts = service.data_counts || {};
+        for (const badge of badges) {
+            const dt = badge.dataset.dataType;
+            const count = dataCounts[dt] || 0;
+            const isActive = dt === 'funding' ? (dataCounts.ltp || 0) > 0 : count > 0;
+            badge.classList.toggle('active', isActive);
+            badge.classList.toggle('dimmed', !isActive);
+        }
+
+        // Update data breakdown
         const detailValues = card.querySelectorAll('.detail-value');
+        const dataTypes = service.data_types || [];
         if (detailValues.length > 0) {
-            detailValues[0].textContent = service.data_count || 0;
+            detailValues[0].textContent = this.formatDataBreakdown(dataTypes, dataCounts);
         }
         if (detailValues.length > 1 && service.last_update) {
             detailValues[1].textContent = this.formatTime(service.last_update);
@@ -376,8 +419,9 @@ class UIRenderer {
                 const name = serviceCard.dataset.name || '';
                 const exchange = serviceCard.dataset.exchange || '';
                 const type = serviceCard.dataset.type || '';
+                const dataTypes = serviceCard.dataset.dataTypes || '';
 
-                const matches = !q || name.includes(q) || exchange.includes(q) || type.includes(q);
+                const matches = !q || name.includes(q) || exchange.includes(q) || type.includes(q) || dataTypes.includes(q);
 
                 if (matches) {
                     serviceCard.classList.remove('hidden');
@@ -425,6 +469,18 @@ class UIRenderer {
             minute: '2-digit',
             second: '2-digit',
         });
+    }
+
+    formatDataBreakdown(dataTypes, dataCounts) {
+        if (!dataTypes || dataTypes.length === 0) return '0';
+        const parts = [];
+        for (const dt of dataTypes) {
+            const cfg = DATA_TYPE_CONFIG[dt];
+            if (!cfg) continue;
+            const count = dataCounts[dt] || 0;
+            parts.push(`${cfg.label}: ${count}`);
+        }
+        return parts.join(' | ');
     }
 
     // ---------- Service Action Handlers ----------
