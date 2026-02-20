@@ -24,5 +24,33 @@ class TestDataCountsFix(unittest.TestCase):
             self.assertIn(f"'{prefix}'", source,
                 f"Missing prefix '{prefix}' in get_all_data_counts()")
 
+class TestBulkAPIEndpoints(unittest.TestCase):
+    def test_services_info_helper_exists(self):
+        source = read_file('web_dashboard.py')
+        self.assertIn('_get_services_info', source)
+
+    def test_start_all_endpoint(self):
+        source = read_file('web_dashboard.py')
+        self.assertIn('/api/services/start-all', source)
+
+    def test_stop_all_endpoint(self):
+        source = read_file('web_dashboard.py')
+        self.assertIn('/api/services/stop-all', source)
+
+    def test_exchange_start_endpoint(self):
+        source = read_file('web_dashboard.py')
+        self.assertIn('/api/exchange/{exchange_id}/start', source)
+
+    def test_exchange_stop_endpoint(self):
+        source = read_file('web_dashboard.py')
+        self.assertIn('/api/exchange/{exchange_id}/stop', source)
+
+    def test_web_dashboard_compiles(self):
+        import py_compile
+        try:
+            py_compile.compile(os.path.join(PROJECT_ROOT, 'web_dashboard.py'), doraise=True)
+        except py_compile.PyCompileError as e:
+            self.fail(f"Syntax error: {e}")
+
 if __name__ == '__main__':
     unittest.main()

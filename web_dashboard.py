@@ -49,6 +49,92 @@ async def index():
     return FileResponse(str(static_path / "index.html"))
 
 
+# ==================== Service Metadata ====================
+
+def _get_services_info() -> Dict:
+    """Service metadata - single source of truth for all 13 services."""
+    return {
+        'bybit_spot': {
+            'name': 'Bybit Spot',
+            'exchange': 'bybit',
+            'type': 'spot',
+            'redis_prefix': 'bybit_spot'
+        },
+        'bybit_futures_orderbook': {
+            'name': 'Bybit Futures Orderbook',
+            'exchange': 'bybit',
+            'type': 'futures',
+            'redis_prefix': 'bybit_futures_ob'
+        },
+        'bybit_options': {
+            'name': 'Bybit Options',
+            'exchange': 'bybit',
+            'type': 'options',
+            'redis_prefix': 'bybit_options'
+        },
+        'coindcx_spot': {
+            'name': 'CoinDCX Spot',
+            'exchange': 'coindcx',
+            'type': 'spot',
+            'redis_prefix': 'coindcx_spot'
+        },
+        'coindcx_futures_rest': {
+            'name': 'CoinDCX Futures REST',
+            'exchange': 'coindcx',
+            'type': 'futures',
+            'redis_prefix': 'coindcx_futures'
+        },
+        'delta_spot': {
+            'name': 'Delta Spot',
+            'exchange': 'delta',
+            'type': 'spot',
+            'redis_prefix': 'delta_spot'
+        },
+        'delta_futures_ltp': {
+            'name': 'Delta Futures LTP',
+            'exchange': 'delta',
+            'type': 'futures',
+            'redis_prefix': 'delta_futures'
+        },
+        'delta_options': {
+            'name': 'Delta Options',
+            'exchange': 'delta',
+            'type': 'options',
+            'redis_prefix': 'delta_options'
+        },
+        'hyperliquid_spot': {
+            'name': 'HyperLiquid Spot',
+            'exchange': 'hyperliquid',
+            'type': 'spot',
+            'redis_prefix': 'hyperliquid_spot'
+        },
+        'hyperliquid_perpetual': {
+            'name': 'HyperLiquid Perpetual',
+            'exchange': 'hyperliquid',
+            'type': 'perpetual',
+            'redis_prefix': 'hyperliquid_futures'
+        },
+        'bybit_spot_testnet_spot': {
+            'name': 'Bybit Spot TestNet',
+            'exchange': 'bybit_spot_testnet',
+            'type': 'spot',
+            'redis_prefix': 'bybit_spot_testnet'
+        },
+        'bybit_futures_testnet_orderbook': {
+            'name': 'Bybit Futures TestNet',
+            'exchange': 'bybit_futures_testnet',
+            'type': 'futures',
+            'redis_prefix': 'bybit_futures_testnet'
+        },
+        'binance_spot': {
+            'name': 'Binance Spot',
+            'exchange': 'binance',
+            'type': 'spot',
+            'redis_prefix': 'binance_spot'
+        }
+    }
+
+
 # ==================== API Endpoints ====================
 
 @app.get("/health")
@@ -96,87 +182,8 @@ async def get_status() -> Dict:
         # Get data counts
         data_counts = control.get_all_data_counts()
 
-        # Define service metadata (must match manager.py service_registry keys)
-        services_info = {
-            'bybit_spot': {
-                'name': 'Bybit Spot',
-                'exchange': 'bybit',
-                'type': 'spot',
-                'redis_prefix': 'bybit_spot'
-            },
-            'bybit_futures_orderbook': {
-                'name': 'Bybit Futures Orderbook',
-                'exchange': 'bybit',
-                'type': 'futures',
-                'redis_prefix': 'bybit_futures_ob'
-            },
-            'bybit_options': {
-                'name': 'Bybit Options',
-                'exchange': 'bybit',
-                'type': 'options',
-                'redis_prefix': 'bybit_options'
-            },
-            'coindcx_spot': {
-                'name': 'CoinDCX Spot',
-                'exchange': 'coindcx',
-                'type': 'spot',
-                'redis_prefix': 'coindcx_spot'
-            },
-            'coindcx_futures_rest': {
-                'name': 'CoinDCX Futures REST',
-                'exchange': 'coindcx',
-                'type': 'futures',
-                'redis_prefix': 'coindcx_futures'
-            },
-            'delta_spot': {
-                'name': 'Delta Spot',
-                'exchange': 'delta',
-                'type': 'spot',
-                'redis_prefix': 'delta_spot'
-            },
-            'delta_futures_ltp': {
-                'name': 'Delta Futures LTP',
-                'exchange': 'delta',
-                'type': 'futures',
-                'redis_prefix': 'delta_futures'
-            },
-            'delta_options': {
-                'name': 'Delta Options',
-                'exchange': 'delta',
-                'type': 'options',
-                'redis_prefix': 'delta_options'
-            },
-            'hyperliquid_spot': {
-                'name': 'HyperLiquid Spot',
-                'exchange': 'hyperliquid',
-                'type': 'spot',
-                'redis_prefix': 'hyperliquid_spot'
-            },
-            'hyperliquid_perpetual': {
-                'name': 'HyperLiquid Perpetual',
-                'exchange': 'hyperliquid',
-                'type': 'perpetual',
-                'redis_prefix': 'hyperliquid_futures'
-            },
-            'bybit_spot_testnet_spot': {
-                'name': 'Bybit Spot TestNet',
-                'exchange': 'bybit_spot_testnet',
-                'type': 'spot',
-                'redis_prefix': 'bybit_spot_testnet'
-            },
-            'bybit_futures_testnet_orderbook': {
-                'name': 'Bybit Futures TestNet',
-                'exchange': 'bybit_futures_testnet',
-                'type': 'futures',
-                'redis_prefix': 'bybit_futures_testnet'
-            },
-            'binance_spot': {
-                'name': 'Binance Spot',
-                'exchange': 'binance',
-                'type': 'spot',
-                'redis_prefix': 'binance_spot'
-            }
-        }
+        # Service metadata from single source of truth
+        services_info = _get_services_info()
 
         # Build response
         services = []
@@ -261,8 +268,50 @@ async def stop_service(service_id: str) -> Dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/services/start-all")
+async def start_all_services() -> Dict:
+    """Start all services."""
+    results = {}
+    for service_id in _get_services_info().keys():
+        results[service_id] = control.send_start_command(service_id)
+    return {'success': True, 'message': f'Start commands sent for {len(results)} services', 'results': results}
+
+
+@app.post("/api/services/stop-all")
+async def stop_all_services() -> Dict:
+    """Stop all services."""
+    results = {}
+    for service_id in _get_services_info().keys():
+        results[service_id] = control.send_stop_command(service_id)
+    return {'success': True, 'message': f'Stop commands sent for {len(results)} services', 'results': results}
+
+
+@app.post("/api/exchange/{exchange_id}/start")
+async def start_exchange_services(exchange_id: str) -> Dict:
+    """Start all services for an exchange."""
+    matching = {sid: info for sid, info in _get_services_info().items() if info['exchange'] == exchange_id}
+    if not matching:
+        raise HTTPException(status_code=404, detail=f"Exchange '{exchange_id}' not found")
+    results = {}
+    for service_id in matching.keys():
+        results[service_id] = control.send_start_command(service_id)
+    return {'success': True, 'results': results}
+
+
+@app.post("/api/exchange/{exchange_id}/stop")
+async def stop_exchange_services(exchange_id: str) -> Dict:
+    """Stop all services for an exchange."""
+    matching = {sid: info for sid, info in _get_services_info().items() if info['exchange'] == exchange_id}
+    if not matching:
+        raise HTTPException(status_code=404, detail=f"Exchange '{exchange_id}' not found")
+    results = {}
+    for service_id in matching.keys():
+        results[service_id] = control.send_stop_command(service_id)
+    return {'success': True, 'results': results}
+
+
 @app.get("/api/health")
-async def health_check() -> Dict:
+async def api_health_check() -> Dict:
     """Health check endpoint."""
     return {
         'status': 'healthy',
