@@ -219,6 +219,10 @@ class ControlInterface:
 
         counts = {}
         for prefix in prefixes:
-            counts[prefix] = self.get_exchange_data_count(prefix)
+            # Count base (LTP) + orderbook (_ob) + trades (_trades) keys
+            ltp = self.get_exchange_data_count(prefix)
+            ob = self.get_exchange_data_count(f"{prefix}_ob")
+            trades = self.get_exchange_data_count(f"{prefix}_trades")
+            counts[prefix] = ltp + ob + trades
 
         return counts

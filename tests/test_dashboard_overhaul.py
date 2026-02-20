@@ -24,6 +24,11 @@ class TestDataCountsFix(unittest.TestCase):
             self.assertIn(f"'{prefix}'", source,
                 f"Missing prefix '{prefix}' in get_all_data_counts()")
 
+    def test_counts_include_ob_and_trades(self):
+        source = read_file('core/control_interface.py')
+        self.assertIn('_ob', source, "Should count orderbook keys (_ob)")
+        self.assertIn('_trades', source, "Should count trades keys (_trades)")
+
 class TestBulkAPIEndpoints(unittest.TestCase):
     def test_services_info_helper_exists(self):
         source = read_file('web_dashboard.py')
