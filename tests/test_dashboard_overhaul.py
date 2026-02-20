@@ -98,5 +98,36 @@ class TestGlassmorphismCSS(unittest.TestCase):
         source = read_file('web/static/style.css')
         self.assertIn('.toast-container', source)
 
+class TestFrontendJS(unittest.TestCase):
+    def test_start_all_api(self):
+        source = read_file('web/static/app.js')
+        self.assertIn('/api/services/start-all', source)
+
+    def test_stop_all_api(self):
+        source = read_file('web/static/app.js')
+        self.assertIn('/api/services/stop-all', source)
+
+    def test_exchange_control_api(self):
+        source = read_file('web/static/app.js')
+        self.assertIn('/api/exchange/', source)
+
+    def test_filter_services(self):
+        source = read_file('web/static/app.js')
+        self.assertIn('filterServices', source)
+
+    def test_no_alert_calls(self):
+        source = read_file('web/static/app.js')
+        lines = source.split('\n')
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith('//') or stripped.startswith('*'):
+                continue
+            self.assertNotRegex(stripped, r'\balert\s*\(',
+                f"Line {i} uses alert() - should use toast: {stripped}")
+
+    def test_toast_function(self):
+        source = read_file('web/static/app.js')
+        self.assertIn('showToast', source)
+
 if __name__ == '__main__':
     unittest.main()
