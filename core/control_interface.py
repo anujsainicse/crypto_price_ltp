@@ -203,12 +203,18 @@ class ControlInterface:
         """
         prefixes = [
             'bybit_spot',
+            'bybit_futures_ob',
+            'bybit_options',
             'bybit_spot_testnet',
             'bybit_futures_testnet',
+            'coindcx_spot',
             'coindcx_futures',
+            'delta_spot',
             'delta_futures',
             'delta_options',
-            'binance_spot'
+            'hyperliquid_spot',
+            'hyperliquid_futures',
+            'binance_spot',
         ]
 
         counts = {}
