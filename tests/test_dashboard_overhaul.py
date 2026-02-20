@@ -52,5 +52,26 @@ class TestBulkAPIEndpoints(unittest.TestCase):
         except py_compile.PyCompileError as e:
             self.fail(f"Syntax error: {e}")
 
+class TestHTMLStructure(unittest.TestCase):
+    def test_global_actions_bar(self):
+        source = read_file('web/static/index.html')
+        self.assertIn('global-actions', source)
+
+    def test_start_all_button(self):
+        source = read_file('web/static/index.html')
+        self.assertIn('start-all-btn', source)
+
+    def test_stop_all_button(self):
+        source = read_file('web/static/index.html')
+        self.assertIn('stop-all-btn', source)
+
+    def test_search_input(self):
+        source = read_file('web/static/index.html')
+        self.assertIn('search-input', source)
+
+    def test_glass_card_class(self):
+        source = read_file('web/static/index.html')
+        self.assertIn('glass-card', source)
+
 if __name__ == '__main__':
     unittest.main()
