@@ -73,5 +73,30 @@ class TestHTMLStructure(unittest.TestCase):
         source = read_file('web/static/index.html')
         self.assertIn('glass-card', source)
 
+class TestGlassmorphismCSS(unittest.TestCase):
+    def test_backdrop_filter(self):
+        source = read_file('web/static/style.css')
+        self.assertIn('backdrop-filter', source)
+
+    def test_old_gradient_removed(self):
+        source = read_file('web/static/style.css')
+        self.assertNotIn('#667eea', source, "Old purple gradient should be removed")
+
+    def test_glass_card_style(self):
+        source = read_file('web/static/style.css')
+        self.assertIn('.glass-card', source)
+
+    def test_pulse_animation(self):
+        source = read_file('web/static/style.css')
+        self.assertIn('@keyframes pulse', source)
+
+    def test_status_dot(self):
+        source = read_file('web/static/style.css')
+        self.assertIn('.status-dot', source)
+
+    def test_toast_styles(self):
+        source = read_file('web/static/style.css')
+        self.assertIn('.toast-container', source)
+
 if __name__ == '__main__':
     unittest.main()
