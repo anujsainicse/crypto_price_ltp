@@ -86,6 +86,7 @@ class BinanceOptionsService(BaseService):
 
         # State management
         self.active_symbols: List[str] = []
+        self._symbols_lock = asyncio.Lock()
         self._websockets: Dict[int, Any] = {}  # connection_id -> websocket
         self._trades: Dict[str, deque] = {}
         self._trade_counter = 0
@@ -673,7 +674,8 @@ class BinanceOptionsService(BaseService):
                     self.logger.warning("Symbol refresh returned empty, keeping existing symbols")
                     continue
 
-                old_set = set(self.active_symbols)
+                async with self._symbols_lock:
+                    old_set = set(self.active_symbols)
                 new_set = set(new_symbols)
                 to_unsubscribe = old_set - new_set
                 to_subscribe = new_set - old_set
@@ -688,7 +690,8 @@ class BinanceOptionsService(BaseService):
                     self.logger.info(f"Subscribing to {len(to_subscribe)} new symbols")
                     await self._subscribe_symbols_incremental(list(to_subscribe))
 
-                self.active_symbols = new_symbols
+                async with self._symbols_lock:
+                    self.active_symbols = new_symbols
                 self.logger.info(
                     f"Symbol refresh complete. Now tracking {len(self.active_symbols)} symbols"
                 )
