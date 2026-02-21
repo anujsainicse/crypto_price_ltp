@@ -360,6 +360,7 @@ class TestIntegration(unittest.TestCase):
             'services/bybit_spot_testnet/spot_testnet_service.py',
             'services/bybit_f/futures_orderbook_service.py',
             'services/bybit_f_testnet/futures_testnet_service.py',
+            'services/bybit_o_testnet/options_testnet_service.py',
         ]
 
         for file_path in files:
@@ -368,6 +369,41 @@ class TestIntegration(unittest.TestCase):
                 py_compile.compile(full_path, doraise=True)
             except py_compile.PyCompileError as e:
                 self.fail(f"Syntax error in {file_path}: {e}")
+
+
+class TestBybitOptionsTestnetRegistration(unittest.TestCase):
+    """Verify Bybit Options Testnet service is registered in all required locations."""
+
+    def test_service_in_manager_registry(self):
+        """Verify bybit_options_testnet_options is in manager.py service_registry."""
+        source = read_file('manager.py')
+        self.assertIn("bybit_options_testnet_options", source)
+        self.assertIn("BybitOptionsTestnetService", source)
+        self.assertIn("from services.bybit_o_testnet import BybitOptionsTestnetService", source)
+
+    def test_exchange_in_control_interface_prefixes(self):
+        """Verify bybit_options_testnet prefix is in control_interface.py get_all_data_counts."""
+        source = read_file('core/control_interface.py')
+        self.assertIn("'bybit_options_testnet'", source)
+
+    def test_service_in_web_dashboard(self):
+        """Verify bybit_options_testnet_options is in web_dashboard.py services_info."""
+        source = read_file('web_dashboard.py')
+        self.assertIn("bybit_options_testnet_options", source)
+        self.assertIn("'exchange': 'bybit_options_testnet'", source)
+
+    def test_service_in_verify_tool(self):
+        """Verify bybit_options_testnet is in verify_service.py SERVICE_REGISTRY."""
+        source = read_file('tools/verify_service.py')
+        self.assertIn("'bybit_options_testnet'", source)
+        self.assertIn("BybitOptionsTestnetService", source)
+
+    def test_exchange_config_in_yaml(self):
+        """Verify bybit_options_testnet block exists in exchanges.yaml."""
+        source = read_file('config/exchanges.yaml')
+        self.assertIn("bybit_options_testnet:", source)
+        self.assertIn("wss://stream-testnet.bybit.com/v5/public/option", source)
+        self.assertIn("https://testnet-api.bybit.com/v5/market/instruments-info", source)
 
 
 if __name__ == '__main__':

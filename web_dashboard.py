@@ -46,7 +46,10 @@ app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 @app.get("/")
 async def index():
     """Serve the dashboard homepage."""
-    return FileResponse(str(static_path / "index.html"))
+    return FileResponse(
+        str(static_path / "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 
 # ==================== Service Metadata ====================
@@ -145,6 +148,20 @@ def _get_services_info() -> Dict:
             'type': 'spot',
             'redis_prefix': 'binance_spot',
             'data_types': ['ltp', 'orderbook', 'trades']
+        },
+        'bybit_options_testnet_options': {
+            'name': 'Bybit Options TestNet',
+            'exchange': 'bybit_options_testnet',
+            'type': 'options',
+            'redis_prefix': 'bybit_options_testnet',
+            'data_types': ['ltp']
+        },
+        'binance_options': {
+            'name': 'Binance Options',
+            'exchange': 'binance',
+            'type': 'options',
+            'redis_prefix': 'binance_options',
+            'data_types': ['ltp']
         }
     }
 
@@ -432,7 +449,7 @@ def main():
 
     uvicorn.run(
         "web_dashboard:app",
-        host="0.0.0.0",
+        host="::",
         port=PORT,
         log_level="info",
         reload=False

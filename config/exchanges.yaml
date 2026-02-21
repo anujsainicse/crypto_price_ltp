@@ -356,6 +356,38 @@ bybit_futures_testnet:
       trades_limit: 50
       trades_redis_prefix: "bybit_futures_testnet_trades"
 
+bybit_options_testnet:
+  name: "Bybit Options Testnet"
+  enabled: true
+  services:
+    options:
+      enabled: true
+      auto_start: false
+
+      websocket_url: "wss://stream-testnet.bybit.com/v5/public/option"
+      rest_api_url: "https://testnet-api.bybit.com/v5/market/instruments-info"
+
+      base_coins: []
+      use_dynamic_base_coin_discovery: true
+      subscribe_all: false
+      max_symbols_per_asset: 100
+      max_active_symbols: 1000
+
+      subscription_batch_size: 50
+      subscription_batch_delay: 0.2
+      symbol_refresh_interval: 3600
+
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+
+      redis_prefix: "bybit_options_testnet"
+      redis_ttl: 60
+
+      # Optional orderbook (disabled by default - ticker data only)
+      orderbook_enabled: false
+      orderbook_depth: 25
+      orderbook_redis_prefix: "bybit_options_testnet_ob"
+
 binance:
   name: "Binance"
   enabled: true
@@ -388,3 +420,42 @@ binance:
       trades_enabled: true
       trades_limit: 50
       trades_redis_prefix: "binance_spot_trades"
+
+    options:
+      enabled: true
+      auto_start: true
+
+      # API endpoints
+      rest_api_url: "https://eapi.binance.com/eapi/v1/exchangeInfo"
+      websocket_url: "wss://nbstream.binance.com/eoptions/ws"
+
+      # Symbol filtering
+      underlying_assets:
+        - "BTC"
+        - "ETH"
+      subscribe_all: false           # false = top N by nearest expiry per underlying
+      max_symbols_per_asset: 100     # Top 100 per underlying (sorted by nearest expiry)
+      max_active_symbols: 500
+
+      # Connection settings (Binance eOptions: max 200 streams per connection)
+      max_streams_per_connection: 180  # Leave headroom below 200 limit
+      subscription_batch_size: 50      # Params per SUBSCRIBE message
+      subscription_batch_delay: 0.1    # Seconds between subscription batches
+      symbol_refresh_interval: 3600    # Refresh symbols every 1 hour
+
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+
+      # Redis
+      redis_prefix: "binance_options"
+      redis_ttl: 60
+
+      # Orderbook (optional - disabled by default, ticker data only)
+      orderbook_enabled: false
+      orderbook_depth: 20              # 10, 20, 50, or 100
+      orderbook_redis_prefix: "binance_options_ob"
+
+      # Trades (optional - disabled by default)
+      trades_enabled: false
+      trades_limit: 50
+      trades_redis_prefix: "binance_options_trades"

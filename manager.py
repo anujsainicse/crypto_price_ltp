@@ -22,7 +22,9 @@ from services.hyperliquid_p import HyperLiquidPerpetualService
 from services.bybit_spot_testnet import BybitSpotTestnetService
 from services.bybit_f import BybitFuturesOrderbookService
 from services.bybit_f_testnet import BybitFuturesTestnetService
+from services.bybit_o_testnet import BybitOptionsTestnetService
 from services.binance_s import BinanceSpotService
+from services.binance_o import BinanceOptionsService
 
 
 class ServiceManager:
@@ -246,6 +248,19 @@ class ServiceManager:
                 }
                 self.logger.info("✓ Bybit Futures TestNet Service loaded")
 
+        elif exchange == 'bybit_options_testnet':
+            # Bybit Options TestNet Service
+            options_config = services_config.get('options', {})
+            if options_config.get('enabled', False):
+                service = BybitOptionsTestnetService(options_config)
+                self.services.append(service)
+                self.service_registry['bybit_options_testnet_options'] = {
+                    'service': service,
+                    'task': None,
+                    'config': options_config
+                }
+                self.logger.info("✓ Bybit Options TestNet Service loaded")
+
         elif exchange == 'binance':
             # Binance Spot Service
             spot_config = services_config.get('spot', {})
@@ -258,6 +273,18 @@ class ServiceManager:
                     'config': spot_config
                 }
                 self.logger.info("✓ Binance Spot Service loaded")
+
+            # Binance Options Service
+            options_config = services_config.get('options', {})
+            if options_config.get('enabled', False):
+                service = BinanceOptionsService(options_config)
+                self.services.append(service)
+                self.service_registry['binance_options'] = {
+                    'service': service,
+                    'task': None,
+                    'config': options_config
+                }
+                self.logger.info("✓ Binance Options Service loaded")
 
     async def start_service(self, service_id: str) -> bool:
         """Start a specific service.
