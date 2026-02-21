@@ -30,8 +30,8 @@ class TestDeltaSpotRedisFailure:
 
         await service._process_orderbook_update(data)
 
-        # Verify warning logged
-        service.logger.warning.assert_called_with("Failed to update orderbook in Redis for BTC")
+        # Verify warning logged (full symbol used as Redis key suffix)
+        service.logger.warning.assert_called_with("Failed to update orderbook in Redis for BTCUSD")
 
     @pytest.mark.asyncio
     async def test_redis_failure_logging_trades(self, service):
@@ -40,7 +40,7 @@ class TestDeltaSpotRedisFailure:
         # Test via _store_trades directly as it's called by both snapshot and update
         service._trades["BTCUSD"] = [{"p": 100, "q": 1}]
 
-        await service._store_trades("BTCUSD", "BTC")
+        await service._store_trades("BTCUSD", "BTCUSD")
 
-        # Verify warning logged
-        service.logger.warning.assert_called_with("Failed to update trades in Redis for BTC")
+        # Verify warning logged (full symbol used as Redis key suffix)
+        service.logger.warning.assert_called_with("Failed to update trades in Redis for BTCUSD")

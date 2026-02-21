@@ -71,18 +71,8 @@ class BybitFuturesTestnetService(BaseService):
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
         self._trades: Dict[str, deque] = {}
 
-    def _extract_base_coin(self, symbol: str) -> str:
-        """Extract base coin from symbol by removing quote currency.
-
-        Args:
-            symbol: Trading pair symbol (e.g., 'BTCUSDT')
-
-        Returns:
-            Base coin (e.g., 'BTC')
-        """
-        for quote in self.quote_currencies:
-            if symbol.endswith(quote):
-                return symbol[:-len(quote)]
+    def _get_redis_symbol(self, symbol: str) -> str:
+        """Return the symbol to use as Redis key suffix (full exchange symbol)."""
         return symbol
 
     async def start(self):
@@ -227,12 +217,12 @@ class BybitFuturesTestnetService(BaseService):
                 self.logger.warning(f"Cannot convert price to float for {symbol}: {last_price}")
                 return
 
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             # Extract funding rate (futures-specific field)
             funding_rate = ticker_data.get('fundingRate', '0') or '0'
 
-            redis_key = f"{self.redis_prefix}:{base_coin}"
+            redis_key = f"{self.redis_prefix}:{redis_symbol}"
             success = self.redis_client.set_price_data(
                 key=redis_key,
                 price=price,
@@ -249,7 +239,7 @@ class BybitFuturesTestnetService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated {base_coin}: ${last_price} "
+                    f"Updated {redis_symbol}: ${last_price} "
                     f"(funding: {funding_rate}, 24h change: {ticker_data.get('price24hPcnt', '0')}%)"
                 )
 
@@ -277,7 +267,7 @@ class BybitFuturesTestnetService(BaseService):
             if not symbol:
                 return
 
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             if update_type == 'snapshot':
                 # Full orderbook replacement
@@ -364,7 +354,7 @@ class BybitFuturesTestnetService(BaseService):
                     del self._orderbooks[symbol]
 
                     # Clear stale Redis data immediately
-                    redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+                    redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
                     self.redis_client.delete_key(redis_key)
 
                     # Close the WebSocket so _connect_and_stream exits and start()
@@ -379,7 +369,7 @@ class BybitFuturesTestnetService(BaseService):
             except (ValueError, TypeError):
                 return
 
-            redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+            redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
             success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=sorted_bids,
@@ -393,7 +383,7 @@ class BybitFuturesTestnetService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated orderbook {base_coin}: {len(sorted_bids)} bids, "
+                    f"Updated orderbook {redis_symbol}: {len(sorted_bids)} bids, "
                     f"{len(sorted_asks)} asks, spread: {spread}"
                 )
 
@@ -429,7 +419,7 @@ class BybitFuturesTestnetService(BaseService):
                     )
                     continue
 
-                base_coin = self._extract_base_coin(symbol)
+                redis_symbol = self._get_redis_symbol(symbol)
 
                 self._trades.setdefault(symbol, deque(maxlen=self.trades_limit))
 
@@ -441,7 +431,7 @@ class BybitFuturesTestnetService(BaseService):
                     'id': trade.get('i', '')    # trade id
                 })
 
-                redis_key = f"{self.trades_redis_prefix}:{base_coin}"
+                redis_key = f"{self.trades_redis_prefix}:{redis_symbol}"
                 trades_list = list(self._trades[symbol])
                 success = self.redis_client.set_trades_data(
                     key=redis_key,
@@ -452,7 +442,7 @@ class BybitFuturesTestnetService(BaseService):
 
                 if success:
                     self.logger.debug(
-                        f"Updated trades {base_coin}: {len(trades_list)} trades, "
+                        f"Updated trades {redis_symbol}: {len(trades_list)} trades, "
                         f"latest: {trade.get('p')} @ {trade.get('S')}"
                     )
 

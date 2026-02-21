@@ -297,11 +297,10 @@ class CoinDCXFuturesRESTService(BaseService):
                     self.logger.warning(f"Cannot convert LTP to float for {symbol}: {ltp}")
                     continue
 
-                # Extract base coin (B-BTC_USDT -> BTC)
-                base_coin = self._extract_base_coin(symbol)
+                redis_symbol = self._get_redis_symbol(symbol)
 
                 # Get existing data to preserve funding rates
-                redis_key = f"{self.redis_prefix}:{base_coin}"
+                redis_key = f"{self.redis_prefix}:{redis_symbol}"
                 existing_data = self.redis_client.get_price_data(redis_key) or {}
 
                 # Prepare additional data - CoinDCX uses short field names: v=volume, h=high, l=low, pc=price_change, mp=mark_price
@@ -338,9 +337,9 @@ class CoinDCXFuturesRESTService(BaseService):
 
                 if success:
                     updated_count += 1
-                    self.logger.debug(f"Updated {base_coin}: ${price_float}")
+                    self.logger.debug(f"Updated {redis_symbol}: ${price_float}")
                 else:
-                    self.logger.warning(f"Failed to write LTP to Redis for {base_coin}")
+                    self.logger.warning(f"Failed to write LTP to Redis for {redis_symbol}")
 
             except Exception as e:
                 self.logger.error(f"Error processing LTP for {symbol}: {e}")
@@ -392,9 +391,9 @@ class CoinDCXFuturesRESTService(BaseService):
             bids_raw = data.get('bids', {})
             asks_raw = data.get('asks', {})
 
-            # Extract base coin early for Redis operations
-            base_coin = self._extract_base_coin(symbol)
-            redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+            # Get Redis symbol early for Redis operations
+            redis_symbol = self._get_redis_symbol(symbol)
+            redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
 
             # Parse orderbook levels - CoinDCX format: {"price": "quantity", ...}
             def parse_levels(levels) -> List[List[float]]:
@@ -471,11 +470,11 @@ class CoinDCXFuturesRESTService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated {base_coin} orderbook: spread=${spread:.2f}, "
+                    f"Updated {redis_symbol} orderbook: spread=${spread:.2f}, "
                     f"mid=${mid_price:.2f}, {len(bids)} bids, {len(asks)} asks"
                 )
             else:
-                self.logger.warning(f"Failed to write orderbook to Redis for {base_coin}")
+                self.logger.warning(f"Failed to write orderbook to Redis for {redis_symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook for {symbol}: {e}")
@@ -604,8 +603,8 @@ class CoinDCXFuturesRESTService(BaseService):
                 return
 
             # Store in Redis
-            base_coin = self._extract_base_coin(symbol)
-            redis_key = f"{self.trades_redis_prefix}:{base_coin}"
+            redis_symbol = self._get_redis_symbol(symbol)
+            redis_key = f"{self.trades_redis_prefix}:{redis_symbol}"
 
             trades_list = list(self._trades[symbol])
 
@@ -617,9 +616,9 @@ class CoinDCXFuturesRESTService(BaseService):
             )
 
             if success:
-                self.logger.debug(f"Updated {base_coin} trades: {len(trades_list)} trades")
+                self.logger.debug(f"Updated {redis_symbol} trades: {len(trades_list)} trades")
             else:
-                self.logger.warning(f"Failed to write trades to Redis for {base_coin}")
+                self.logger.warning(f"Failed to write trades to Redis for {redis_symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing trades for {symbol}: {e}")
@@ -674,9 +673,8 @@ class CoinDCXFuturesRESTService(BaseService):
                     self.logger.warning(f"Malformed funding rate for {symbol}")
                     continue
 
-                # Extract base coin
-                base_coin = self._extract_base_coin(symbol)
-                redis_key = f"{self.redis_prefix}:{base_coin}"
+                redis_symbol = self._get_redis_symbol(symbol)
+                redis_key = f"{self.redis_prefix}:{redis_symbol}"
 
                 # Get existing data to preserve LTP
                 existing_data = self.redis_client.get_price_data(redis_key) or {}
@@ -707,14 +705,14 @@ class CoinDCXFuturesRESTService(BaseService):
                     # Skip writing placeholder - wait for LTP poller to create the entry
                     # Writing price=0.0 would cause downstream consumers (AOE) to read invalid price
                     self.logger.debug(
-                        f"Skipping funding update for {base_coin} - no LTP data yet"
+                        f"Skipping funding update for {redis_symbol} - no LTP data yet"
                     )
                     continue
 
                 if success:
                     updated_count += 1
                     self.logger.debug(
-                        f"Updated {base_coin} funding: "
+                        f"Updated {redis_symbol} funding: "
                         f"current={fr_float*100:.4f}%, estimated={efr_float*100:.4f}%"
                     )
 
@@ -723,34 +721,11 @@ class CoinDCXFuturesRESTService(BaseService):
 
         self.logger.info(f"Updated funding rates for {updated_count} symbols")
 
-    def _extract_base_coin(self, symbol: str) -> str:
-        """Extract base coin from CoinDCX futures symbol.
-
-        Uses configurable symbol_prefix and quote_currencies for parsing.
-
-        Args:
-            symbol: Original exchange symbol (e.g., B-BTC_USDT)
-
-        Returns:
-            Base coin (e.g., BTC)
-        """
-        base = symbol
-
-        # Remove configurable prefix (e.g., B- for Binance-backed)
-        if self.symbol_prefix and base.startswith(self.symbol_prefix):
-            base = base[len(self.symbol_prefix):]
-
-        # Remove quote currency suffix
-        if '_' in base:
-            base = base.split('_')[0]
-        else:
-            # Try to strip quote currencies from end (for symbols like BTCUSDT)
-            for quote in self.quote_currencies:
-                if base.endswith(quote):
-                    base = base[:-len(quote)]
-                    break
-
-        return base
+    def _get_redis_symbol(self, symbol: str) -> str:
+        """Strip CoinDCX prefix (B-) but preserve quote. B-BTC_USDT -> BTC_USDT."""
+        if self.symbol_prefix and symbol.startswith(self.symbol_prefix):
+            return symbol[len(self.symbol_prefix):]
+        return symbol
 
     async def stop(self):
         """Stop the service."""

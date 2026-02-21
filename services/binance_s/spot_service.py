@@ -69,18 +69,8 @@ class BinanceSpotService(BaseService):
             s.lower(): s for s in self.symbols
         }
 
-    def _extract_base_coin(self, symbol: str) -> str:
-        """Extract base coin from symbol by removing quote currency.
-
-        Args:
-            symbol: Trading pair symbol (e.g., 'BTCUSDT', 'ETHBTC')
-
-        Returns:
-            Base coin (e.g., 'BTC', 'ETH')
-        """
-        for quote in self.quote_currencies:
-            if symbol.endswith(quote):
-                return symbol[:-len(quote)]
+    def _get_redis_symbol(self, symbol: str) -> str:
+        """Return the symbol to use as Redis key suffix (full exchange symbol)."""
         return symbol
 
     def _build_stream_url(self) -> str:
@@ -259,9 +249,9 @@ class BinanceSpotService(BaseService):
             except (ValueError, TypeError):
                 pass
 
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
-            redis_key = f"{self.redis_prefix}:{base_coin}"
+            redis_key = f"{self.redis_prefix}:{redis_symbol}"
             success = self.redis_client.set_price_data(
                 key=redis_key,
                 price=price_float,
@@ -277,11 +267,11 @@ class BinanceSpotService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated {base_coin}: ${last_price} "
+                    f"Updated {redis_symbol}: ${last_price} "
                     f"(24h change: {price_change_percent}%)"
                 )
             else:
-                self.logger.warning(f"Failed to write ticker to Redis for {base_coin}")
+                self.logger.warning(f"Failed to write ticker to Redis for {redis_symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing ticker update: {e}")
@@ -344,7 +334,7 @@ class BinanceSpotService(BaseService):
             if not sorted_bids or not sorted_asks:
                 return
 
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             # Calculate spread and mid_price
             try:
@@ -359,7 +349,7 @@ class BinanceSpotService(BaseService):
                 # Detect crossed book (invalid state)
                 if spread < 0:
                     self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
-                    redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+                    redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
                     self.redis_client.delete_key(redis_key)
                     return
 
@@ -368,7 +358,7 @@ class BinanceSpotService(BaseService):
                 return
 
             # Store in Redis
-            redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+            redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
             success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=sorted_bids,
@@ -382,11 +372,11 @@ class BinanceSpotService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated orderbook {base_coin}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
+                    f"Updated orderbook {redis_symbol}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
                     f"spread: {spread}"
                 )
             else:
-                self.logger.warning(f"Failed to write orderbook to Redis for {base_coin}")
+                self.logger.warning(f"Failed to write orderbook to Redis for {redis_symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")
@@ -424,7 +414,7 @@ class BinanceSpotService(BaseService):
                 self.logger.warning(f"Non-finite trade values for {symbol}: price={price}, qty={quantity}")
                 return
 
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             # Map side: m=false -> buyer is taker (Buy), m=true -> seller is taker (Sell)
             side = 'Sell' if trade_data.get('m', False) else 'Buy'
@@ -446,7 +436,7 @@ class BinanceSpotService(BaseService):
             })
 
             # Store in Redis
-            redis_key = f"{self.trades_redis_prefix}:{base_coin}"
+            redis_key = f"{self.trades_redis_prefix}:{redis_symbol}"
             trades_list = list(self._trades[symbol])
             success = self.redis_client.set_trades_data(
                 key=redis_key,
@@ -457,11 +447,11 @@ class BinanceSpotService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated trades {base_coin}: {len(trades_list)} trades, "
+                    f"Updated trades {redis_symbol}: {len(trades_list)} trades, "
                     f"latest: {price} @ {side}"
                 )
             else:
-                self.logger.warning(f"Failed to write trades to Redis for {base_coin}")
+                self.logger.warning(f"Failed to write trades to Redis for {redis_symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing trade update: {e}")

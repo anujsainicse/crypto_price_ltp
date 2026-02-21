@@ -61,29 +61,11 @@ class CoinDCXSpotService(BaseService):
         self._trades: Dict[str, deque] = {}
         self._initialized_symbols: set = set()
 
-    def _extract_base_coin(self, symbol: str) -> str:
-        """Extract base coin from CoinDCX symbol format.
-
-        Args:
-            symbol: Symbol in format 'BTCUSDT' or 'KC-BTC_USDT'
-
-        Returns:
-            Base coin (e.g., 'BTC')
-        """
-        # Remove prefixes
+    def _get_redis_symbol(self, symbol: str) -> str:
+        """Strip CoinDCX prefix (KC-, B-) but preserve quote. KC-BTC_USDT -> BTC_USDT."""
         for prefix in self.symbol_prefixes:
             if symbol.startswith(prefix):
-                symbol = symbol[len(prefix):]
-                break
-
-        # Remove separator if present
-        if '_' in symbol:
-            return symbol.split('_')[0]
-
-        # Handle standard format: BTCUSDT -> BTC
-        for quote in self.quote_currencies:
-            if symbol.endswith(quote):
-                return symbol[:-len(quote)]
+                return symbol[len(prefix):]
         return symbol
 
     def _normalize_symbol(self, raw_symbol: str) -> str:
@@ -273,7 +255,7 @@ class CoinDCXSpotService(BaseService):
 
             # Normalize symbol for consistent key naming
             normalized_symbol = self._normalize_symbol(symbol)
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             if is_snapshot:
                 # Full orderbook replacement
@@ -332,17 +314,17 @@ class CoinDCXSpotService(BaseService):
                     self._orderbooks[normalized_symbol]['update_id'] = parsed.get('vs', 0)
 
             # Prepare sorted orderbook for Redis storage
-            await self._store_orderbook(normalized_symbol, base_coin)
+            await self._store_orderbook(normalized_symbol, redis_symbol)
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")
 
-    async def _store_orderbook(self, symbol: str, base_coin: str):
+    async def _store_orderbook(self, symbol: str, redis_symbol: str):
         """Build sorted orderbook and store in Redis.
 
         Args:
             symbol: Normalized symbol (e.g., 'BTCUSDT')
-            base_coin: Base coin (e.g., 'BTC')
+            redis_symbol: Symbol for Redis key suffix (e.g., 'BTC_USDT')
         """
         try:
             ob = self._orderbooks.get(symbol, {})
@@ -387,7 +369,7 @@ class CoinDCXSpotService(BaseService):
                         self._initialized_symbols.discard(symbol)
 
                         # Ensure stale data is removed from Redis immediately
-                        redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+                        redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
                         self.redis_client.delete_key(redis_key)
                         return
 
@@ -396,7 +378,7 @@ class CoinDCXSpotService(BaseService):
                     return
 
             # Store in Redis using public API
-            redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+            redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
             success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=sorted_bids,
@@ -410,7 +392,7 @@ class CoinDCXSpotService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated orderbook {base_coin}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
+                    f"Updated orderbook {redis_symbol}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
                     f"spread: {spread}"
                 )
         except Exception as e:
@@ -445,9 +427,9 @@ class CoinDCXSpotService(BaseService):
             if price <= 0 or quantity <= 0:
                 return
 
-            # Normalize symbol and extract base coin
+            # Normalize symbol and get Redis key symbol
             normalized_symbol = self._normalize_symbol(symbol)
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             # Initialize deque for this symbol if not exists
             self._trades.setdefault(normalized_symbol, deque(maxlen=self.trades_limit))
@@ -462,7 +444,7 @@ class CoinDCXSpotService(BaseService):
             })
 
             # Store in Redis using public API
-            redis_key = f"{self.trades_redis_prefix}:{base_coin}"
+            redis_key = f"{self.trades_redis_prefix}:{redis_symbol}"
             trades_list = list(self._trades[normalized_symbol])
             success = self.redis_client.set_trades_data(
                 key=redis_key,
@@ -473,7 +455,7 @@ class CoinDCXSpotService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated trades {base_coin}: {len(trades_list)} trades, "
+                    f"Updated trades {redis_symbol}: {len(trades_list)} trades, "
                     f"latest: {price} @ {parsed.get('S', 'unknown')}"
                 )
 

@@ -72,9 +72,9 @@ class EXCHANGEFuturesLTPService(BaseService):
         price = data.get('price')  # Adjust based on exchange format
         symbol = data.get('symbol')
 
-        # Store in Redis
-        base_coin = self._extract_base_coin(symbol)
-        redis_key = f"{self.redis_prefix}:{base_coin}"
+        # Store in Redis (use full exchange symbol as key suffix)
+        redis_symbol = self._get_redis_symbol(symbol)
+        redis_key = f"{self.redis_prefix}:{redis_symbol}"
 
         self.redis_client.set_price_data(
             key=redis_key,
@@ -143,8 +143,8 @@ python manager.py
 # Check if data is being collected
 redis-cli KEYS "exchange_futures:*"
 
-# Check specific coin
-redis-cli HGETALL exchange_futures:BTC
+# Check specific symbol
+redis-cli HGETALL exchange_futures:BTCUSD
 ```
 
 ---
@@ -250,16 +250,16 @@ async with aiohttp.ClientSession() as session:
 All exchanges should store data in Redis with this format:
 
 **Key Patterns**:
-- `{redis_prefix}:{BASE_COIN}` - LTP (Last Traded Price)
-- `{redis_prefix}_ob:{BASE_COIN}` - Orderbook data (optional)
-- `{redis_prefix}_trades:{BASE_COIN}` - Recent trades (optional)
+- `{redis_prefix}:{symbol}` - LTP (Last Traded Price)
+- `{redis_prefix}_ob:{symbol}` - Orderbook data (optional)
+- `{redis_prefix}_trades:{symbol}` - Recent trades (optional)
 
 Examples:
-- `bybit_spot:BTC` - LTP data
-- `bybit_spot_ob:BTC` - Orderbook (50-level bids/asks, spread, mid_price)
-- `bybit_spot_trades:BTC` - Recent trades (rolling 50)
-- `delta_futures:ETH` - LTP data
-- `coindcx_futures:SOL` - LTP data
+- `bybit_spot:BTCUSDT` - LTP data
+- `bybit_spot_ob:BTCUSDT` - Orderbook (50-level bids/asks, spread, mid_price)
+- `bybit_spot_trades:BTCUSDT` - Recent trades (rolling 50)
+- `delta_futures:ETHUSD` - LTP data
+- `coindcx_futures:BTC_USDT` - LTP data
 
 **LTP Data Structure** (Hash):
 ```
@@ -342,20 +342,23 @@ LOG_LEVEL=DEBUG
 ```
 
 ### 6. Symbol Normalization
-Different exchanges use different symbol formats. Normalize them:
+Different exchanges use different symbol formats. Use `_get_redis_symbol` to derive the Redis key suffix from the exchange symbol. Most services use the full exchange symbol as-is:
 
 ```python
-def _extract_base_coin(self, symbol: str) -> str:
-    """Extract base coin from symbol."""
-    # Remove common suffixes
-    symbol = symbol.replace('USDT', '').replace('USD', '')
-    symbol = symbol.replace('PERP', '').replace('-', '')
+def _get_redis_symbol(self, symbol: str) -> str:
+    """Return the symbol to use as Redis key suffix (full exchange symbol)."""
+    return symbol
+```
 
-    # Handle exchange-specific formats
-    if symbol.startswith('B-'):  # CoinDCX
-        symbol = symbol[2:]
+For exchanges with prefixed symbols (e.g., CoinDCX uses `KC-BTC_USDT`), strip the prefix but preserve the quote currency:
 
-    return symbol.split('_')[0].upper()
+```python
+def _get_redis_symbol(self, symbol: str) -> str:
+    """Strip exchange prefix but preserve quote. KC-BTC_USDT -> BTC_USDT."""
+    for prefix in self.symbol_prefixes:
+        if symbol.startswith(prefix):
+            return symbol[len(prefix):]
+    return symbol
 ```
 
 ---

@@ -243,11 +243,10 @@ class DeltaFuturesLTPService(BaseService):
                 self.logger.warning(f"Cannot convert price to float for {ticker_data}: {price}")
                 return
 
-            # Extract base coin (e.g., BTC from BTCUSD or BTCUSDT)
-            base_coin = self._extract_base_coin(ticker_data)
+            redis_symbol = self._get_redis_symbol(ticker_data)
 
             # Store in Redis
-            redis_key = f"{self.redis_prefix}:{base_coin}"
+            redis_key = f"{self.redis_prefix}:{redis_symbol}"
 
             # Prepare additional data
             additional_data = {
@@ -271,7 +270,7 @@ class DeltaFuturesLTPService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated {base_coin}: ${price_float} "
+                    f"Updated {redis_symbol}: ${price_float} "
                     f"(Mark: ${data.get('mark_price', 'N/A')})"
                 )
 
@@ -288,8 +287,7 @@ class DeltaFuturesLTPService(BaseService):
             if symbol not in self.symbols:
                 return
 
-            # Extract base coin (BTCUSD -> BTC)
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             # Convert Delta format to [[price, qty], ...] format
             buy_orders = data.get('buy') or []
@@ -352,14 +350,14 @@ class DeltaFuturesLTPService(BaseService):
                         del self._orderbooks[symbol]
 
                     # Ensure stale data is removed from Redis immediately
-                    redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+                    redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
                     self.redis_client.delete_key(redis_key)
                     return
 
                 mid_price = (best_bid + best_ask) / 2
 
             # Store in Redis hash
-            redis_key = f"{self.orderbook_redis_prefix}:{base_coin}"
+            redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
 
             success = self.redis_client.set_orderbook_data(
                 key=redis_key,
@@ -374,11 +372,11 @@ class DeltaFuturesLTPService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated {base_coin} order book: spread=${spread:.2f}, "
+                    f"Updated {redis_symbol} order book: spread=${spread:.2f}, "
                     f"mid=${mid_price:.2f}, {len(bids)} bids, {len(asks)} asks"
                 )
             else:
-                self.logger.warning(f"Failed to update orderbook in Redis for {base_coin}")
+                self.logger.warning(f"Failed to update orderbook in Redis for {redis_symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing order book update: {e}")
@@ -390,7 +388,7 @@ class DeltaFuturesLTPService(BaseService):
             if symbol not in self.symbols:
                 return
 
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
             trades_data = data.get('trades', [])
 
             # Initialize deque
@@ -433,7 +431,7 @@ class DeltaFuturesLTPService(BaseService):
                 })
 
             # Store in Redis
-            await self._store_trades(symbol, base_coin)
+            await self._store_trades(symbol, redis_symbol)
 
             self.logger.info(f"Received trade snapshot for {symbol}: {len(trades_data)} trades")
 
@@ -447,7 +445,7 @@ class DeltaFuturesLTPService(BaseService):
             if symbol not in self.symbols:
                 return
 
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             # Initialize deque if needed
             if symbol not in self._trades:
@@ -484,16 +482,16 @@ class DeltaFuturesLTPService(BaseService):
             })
 
             # Store in Redis
-            await self._store_trades(symbol, base_coin)
+            await self._store_trades(symbol, redis_symbol)
 
-            self.logger.debug(f"Updated {base_coin} trades: {len(self._trades[symbol])} trades in buffer")
+            self.logger.debug(f"Updated {redis_symbol} trades: {len(self._trades[symbol])} trades in buffer")
 
         except Exception as e:
             self.logger.error(f"Error processing trade update: {e}")
 
-    async def _store_trades(self, symbol: str, base_coin: str):
+    async def _store_trades(self, symbol: str, redis_symbol: str):
         """Store trades to Redis."""
-        redis_key = f"{self.trades_redis_prefix}:{base_coin}"
+        redis_key = f"{self.trades_redis_prefix}:{redis_symbol}"
 
         # Convert deque to list for storage
         trades_list = list(self._trades[symbol])
@@ -506,21 +504,10 @@ class DeltaFuturesLTPService(BaseService):
         )
 
         if not success:
-            self.logger.warning(f"Failed to update trades in Redis for {base_coin}")
+            self.logger.warning(f"Failed to update trades in Redis for {redis_symbol}")
 
-    def _extract_base_coin(self, symbol: str) -> str:
-        """Extract base coin from Delta symbol (e.g., BTCUSD -> BTC).
-
-        Args:
-            symbol: Original exchange symbol
-
-        Returns:
-            Base coin (e.g., BTC, ETH)
-        """
-        # Remove common quote currencies
-        for quote in self.quote_currencies:
-            if symbol.endswith(quote):
-                return symbol[:-len(quote)]
+    def _get_redis_symbol(self, symbol: str) -> str:
+        """Return the symbol to use as Redis key suffix (full exchange symbol)."""
         return symbol
 
     async def stop(self):

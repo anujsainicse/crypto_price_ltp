@@ -97,14 +97,14 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 
 ### Examples
 ```
-# LTP Keys
-bybit_spot:BTC
-bybit_futures_testnet:BTC
-binance_spot:BTC
-coindcx_spot:ETH
-coindcx_futures:BTC
-delta_spot:SOL
-delta_futures:BTC
+# LTP Keys (full exchange symbol as key suffix)
+bybit_spot:BTCUSDT
+bybit_futures_testnet:BTCUSDT
+binance_spot:BTCUSDT
+coindcx_spot:BTC_USDT
+coindcx_futures:BTC_USDT
+delta_spot:BTCUSD
+delta_futures:BTCUSD
 hyperliquid_spot:BTC
 hyperliquid_futures:ETH
 
@@ -114,25 +114,25 @@ bybit_options:ETH-28FEB26-4000-C-USDT
 delta_options:C-BTC-106000-241220
 
 # Orderbook Keys
-bybit_spot_ob:BTC
-bybit_futures_testnet_ob:BTC
-binance_spot_ob:BTC
-coindcx_spot_ob:ETH
-coindcx_futures_ob:BTC
-delta_spot_ob:SOL
-delta_futures_ob:BTC
+bybit_spot_ob:BTCUSDT
+bybit_futures_testnet_ob:BTCUSDT
+binance_spot_ob:BTCUSDT
+coindcx_spot_ob:BTC_USDT
+coindcx_futures_ob:BTC_USDT
+delta_spot_ob:BTCUSD
+delta_futures_ob:BTCUSD
 delta_options_ob:C-BTC-106000-241220
 hyperliquid_spot_ob:BTC
 hyperliquid_futures_ob:BTC
 
 # Trades Keys
-bybit_spot_trades:BTC
-bybit_futures_testnet_trades:BTC
-binance_spot_trades:BTC
-coindcx_spot_trades:ETH
-coindcx_futures_trades:BTC
-delta_spot_trades:SOL
-delta_futures_trades:BTC
+bybit_spot_trades:BTCUSDT
+bybit_futures_testnet_trades:BTCUSDT
+binance_spot_trades:BTCUSDT
+coindcx_spot_trades:BTC_USDT
+coindcx_futures_trades:BTC_USDT
+delta_spot_trades:BTCUSD
+delta_futures_trades:BTCUSD
 delta_options_trades:C-BTC-106000-241220
 hyperliquid_spot_trades:BTC
 hyperliquid_futures_trades:BTC
@@ -228,7 +228,7 @@ from datetime import datetime
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 # Get CoinDCX BTC futures price
-data = redis_client.hgetall("coindcx_futures:BTC")
+data = redis_client.hgetall("coindcx_futures:BTC_USDT")
 ltp = float(data[b'ltp'])
 funding_rate = float(data.get(b'current_funding_rate', b'0'))
 timestamp = datetime.fromtimestamp(int(data[b'timestamp']))
@@ -242,7 +242,7 @@ print(f"Last Update: {timestamp}")
 
 ```python
 # Get Bybit BTC orderbook
-ob_data = redis_client.hgetall("bybit_spot_ob:BTC")
+ob_data = redis_client.hgetall("bybit_spot_ob:BTCUSDT")
 bids = json.loads(ob_data[b'bids'])  # [[price, qty], ...]
 asks = json.loads(ob_data[b'asks'])  # [[price, qty], ...]
 spread = float(ob_data[b'spread'])
@@ -258,7 +258,7 @@ print(f"Mid Price: ${mid_price:.2f}")
 
 ```python
 # Get Bybit BTC trades
-trades_data = redis_client.hgetall("bybit_spot_trades:BTC")
+trades_data = redis_client.hgetall("bybit_spot_trades:BTCUSDT")
 trades = json.loads(trades_data[b'trades'])  # List of trade dicts
 count = int(trades_data[b'count'])
 
@@ -455,7 +455,7 @@ The Advanced Order Engine (AOE) uses Crypto Price LTP for:
 
 ### AOE Price Check Code
 ```python
-# AOE reads price from Redis
+# AOE reads price from Redis (symbol = full exchange symbol, e.g. "BTC_USDT")
 price_key = f"coindcx_futures:{symbol}"
 price_data = redis_client.hgetall(price_key)
 current_price = float(price_data[b'ltp'])
@@ -474,7 +474,7 @@ The Monitoring Service (Port 8002) checks price data freshness:
 
 ```python
 # Monitoring checks timestamp freshness
-for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
+for key in ["coindcx_futures:BTC_USDT", "bybit_spot:ETHUSDT"]:
     timestamp = redis_client.hget(key, "timestamp")
     age_seconds = time.time() - int(timestamp)
 
@@ -553,6 +553,6 @@ for key in ["coindcx_futures:BTC", "bybit_spot:ETH"]:
 
 **HyperLiquid Note**: The Perpetual service writes to both new (`hyperliquid_futures*`) and legacy (`hyperliquid_perp*`) Redis keys for backwards compatibility. Legacy key writes can be disabled via `write_legacy_keys: false` in config once downstream consumers have migrated.
 
-**Spot LTP Note**: CoinDCX Spot and Delta Spot do not have dedicated LTP channels. Use the `mid_price` field from the orderbook hash (`coindcx_spot_ob:BTC`, `delta_spot_ob:BTC`) for current price data.
+**Spot LTP Note**: CoinDCX Spot and Delta Spot do not have dedicated LTP channels. Use the `mid_price` field from the orderbook hash (`coindcx_spot_ob:BTC_USDT`, `delta_spot_ob:BTCUSD`) for current price data.
 
 **Binance Spot Note**: Uses combined WebSocket streams (`wss://stream.binance.com:9443/stream?streams=...`) for miniTicker (LTP), partial book depth (20-level orderbook snapshots at 100ms), and trades on a single connection. Binance auto-disconnects after 24 hours; the reconnection loop handles this transparently.

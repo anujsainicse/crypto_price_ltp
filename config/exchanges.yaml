@@ -302,6 +302,7 @@ bybit_spot_testnet:
       symbols:
         - "BTCUSDT"
         - "ETHUSDT"
+        - "ETHUSDC"
         - "SOLUSDT"
         - "BNBUSDT"
         - "DOGEUSDT"

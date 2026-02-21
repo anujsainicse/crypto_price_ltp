@@ -42,18 +42,8 @@ class BybitFuturesOrderbookService(BaseService):
         # In-memory state for orderbooks
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
 
-    def _extract_base_coin(self, symbol: str) -> str:
-        """Extract base coin from symbol by removing quote currency.
-
-        Args:
-            symbol: Trading pair symbol (e.g., 'BTCUSDT')
-
-        Returns:
-            Base coin (e.g., 'BTC')
-        """
-        for quote in self.quote_currencies:
-            if symbol.endswith(quote):
-                return symbol[:-len(quote)]
+    def _get_redis_symbol(self, symbol: str) -> str:
+        """Return the symbol to use as Redis key suffix (full exchange symbol)."""
         return symbol
 
     async def start(self):
@@ -181,8 +171,7 @@ class BybitFuturesOrderbookService(BaseService):
             if not symbol:
                 return
 
-            # Extract base coin (e.g., BTC from BTCUSDT)
-            base_coin = self._extract_base_coin(symbol)
+            redis_symbol = self._get_redis_symbol(symbol)
 
             if update_type == 'snapshot':
                 # Full orderbook replacement (validate item length to prevent IndexError)
@@ -279,7 +268,7 @@ class BybitFuturesOrderbookService(BaseService):
                         del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
 
                         # Ensure stale data is removed from Redis immediately
-                        redis_key = f"{self.redis_prefix}:{base_coin}"
+                        redis_key = f"{self.redis_prefix}:{redis_symbol}"
                         self.redis_client.delete_key(redis_key)
                         return
                     mid_price = (best_bid + best_ask) / 2
@@ -288,7 +277,7 @@ class BybitFuturesOrderbookService(BaseService):
                     return
 
             # Store in Redis using public API
-            redis_key = f"{self.redis_prefix}:{base_coin}"
+            redis_key = f"{self.redis_prefix}:{redis_symbol}"
             success = self.redis_client.set_orderbook_data(
                 key=redis_key,
                 bids=sorted_bids,
@@ -302,11 +291,11 @@ class BybitFuturesOrderbookService(BaseService):
 
             if success:
                 self.logger.debug(
-                    f"Updated orderbook {base_coin}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
+                    f"Updated orderbook {redis_symbol}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
                     f"spread: {spread}"
                 )
             else:
-                self.logger.warning(f"Failed to write orderbook to Redis for {base_coin}")
+                self.logger.warning(f"Failed to write orderbook to Redis for {redis_symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")

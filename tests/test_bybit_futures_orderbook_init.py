@@ -4,6 +4,7 @@ import json
 import asyncio
 from services.bybit_f.futures_orderbook_service import BybitFuturesOrderbookService
 
+
 class TestBybitFuturesOrderbookService(unittest.TestCase):
     def setUp(self):
         self.config = {
@@ -13,7 +14,12 @@ class TestBybitFuturesOrderbookService(unittest.TestCase):
             'orderbook_depth': 50,
             'quote_currencies': ['USDT', 'USDC']
         }
-        self.service = BybitFuturesOrderbookService(self.config)
+        try:
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+        with patch('core.base_service.RedisClient'):
+            self.service = BybitFuturesOrderbookService(self.config)
         self.service.redis_client = MagicMock()
         self.service.logger = MagicMock()
 
@@ -23,10 +29,10 @@ class TestBybitFuturesOrderbookService(unittest.TestCase):
         self.assertEqual(self.service.symbols, ['BTCUSDT'])
         self.assertEqual(self.service.orderbook_depth, 50)
 
-    def test_extract_base_coin(self):
-        self.assertEqual(self.service._extract_base_coin('BTCUSDT'), 'BTC')
-        self.assertEqual(self.service._extract_base_coin('ETHUSDC'), 'ETH')
-        self.assertEqual(self.service._extract_base_coin('UNKNOWN'), 'UNKNOWN')
+    def test_get_redis_symbol(self):
+        self.assertEqual(self.service._get_redis_symbol('BTCUSDT'), 'BTCUSDT')
+        self.assertEqual(self.service._get_redis_symbol('ETHUSDC'), 'ETHUSDC')
+        self.assertEqual(self.service._get_redis_symbol('UNKNOWN'), 'UNKNOWN')
 
     def test_process_orderbook_snapshot(self):
         snapshot_data = {
@@ -47,7 +53,7 @@ class TestBybitFuturesOrderbookService(unittest.TestCase):
         # Verify Redis call
         self.service.redis_client.set_orderbook_data.assert_called_once()
         call_args = self.service.redis_client.set_orderbook_data.call_args[1]
-        self.assertEqual(call_args['key'], 'bybit_futures_ob:BTC')
+        self.assertEqual(call_args['key'], 'bybit_futures_ob:BTCUSDT')
         self.assertEqual(len(call_args['bids']), 2)
         self.assertEqual(len(call_args['asks']), 2)
         self.assertEqual(call_args['original_symbol'], 'BTCUSDT')
