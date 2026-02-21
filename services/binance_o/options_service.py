@@ -262,6 +262,13 @@ class BinanceOptionsService(BaseService):
         # Max symbols per connection = floor(max_streams / streams_per_symbol)
         max_symbols_per_conn = self.max_streams_per_connection // streams_per_symbol
 
+        if max_symbols_per_conn <= 0:
+            self.logger.error(
+                f"Invalid stream configuration: max_streams_per_connection={self.max_streams_per_connection} "
+                f"yields max_symbols_per_conn={max_symbols_per_conn}"
+            )
+            return
+
         # Split into connection batches
         batches = [
             self.active_symbols[i:i + max_symbols_per_conn]
