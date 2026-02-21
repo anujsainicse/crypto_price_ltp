@@ -1,41 +1,55 @@
 /**
  * Crypto Price LTP Dashboard - Frontend Application
+ * Glassmorphism UI with bulk controls, search, and differential updates.
  */
 
 // ==================== Configuration ====================
 
 const CONFIG = {
-    API_BASE_URL: '',  // Same origin
-    REFRESH_INTERVAL: 2000,  // 2 seconds
-    REQUEST_TIMEOUT: 5000,   // 5 seconds
+    API_BASE_URL: '',
+    REFRESH_INTERVAL: 2000,
+    REQUEST_TIMEOUT: 5000,
+    TOAST_DURATION: 3000,
+    SEARCH_DEBOUNCE: 300,
 };
 
-// ==================== State Management ====================
+const DATA_TYPE_CONFIG = {
+    ltp:       { label: 'LTP',     cssClass: 'badge-ltp' },
+    orderbook: { label: 'OB',      cssClass: 'badge-ob' },
+    trades:    { label: 'TRADES',  cssClass: 'badge-trades' },
+    funding:   { label: 'FUNDING', cssClass: 'badge-funding' },
+};
 
-let state = {
+// ==================== State ====================
+
+const state = {
     services: [],
     exchanges: {},
     lastUpdate: null,
     refreshTimer: null,
     countdownTimer: null,
     isLoading: false,
+    isFirstRender: true,
+    previousServiceCount: 0,
+    searchQuery: '',
 };
 
 // ==================== API Client ====================
 
 class APIClient {
-    async fetchStatus() {
+    async _request(url, method = 'GET') {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
 
         try {
-            const response = await fetch(`${CONFIG.API_BASE_URL}/api/status`, {
+            const response = await fetch(`${CONFIG.API_BASE_URL}${url}`, {
+                method,
                 signal: controller.signal,
             });
             clearTimeout(timeout);
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error(`HTTP ${response.status}`);
             }
 
             return await response.json();
@@ -45,48 +59,70 @@ class APIClient {
         }
     }
 
-    async startService(serviceId) {
-        const response = await fetch(`${CONFIG.API_BASE_URL}/api/service/${serviceId}/start`, {
-            method: 'POST',
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        return await response.json();
+    fetchStatus() {
+        return this._request('/api/status');
     }
 
-    async stopService(serviceId) {
-        const response = await fetch(`${CONFIG.API_BASE_URL}/api/service/${serviceId}/stop`, {
-            method: 'POST',
-        });
+    startService(serviceId) {
+        return this._request(`/api/service/${serviceId}/start`, 'POST');
+    }
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+    stopService(serviceId) {
+        return this._request(`/api/service/${serviceId}/stop`, 'POST');
+    }
 
-        return await response.json();
+    startAll() {
+        return this._request('/api/services/start-all', 'POST');
+    }
+
+    stopAll() {
+        return this._request('/api/services/stop-all', 'POST');
+    }
+
+    startExchange(exchangeId) {
+        return this._request(`/api/exchange/${exchangeId}/start`, 'POST');
+    }
+
+    stopExchange(exchangeId) {
+        return this._request(`/api/exchange/${exchangeId}/stop`, 'POST');
     }
 }
 
-const apiClient = new APIClient();
+const api = new APIClient();
 
-// ==================== UI Rendering ====================
+// ==================== Toast Notifications ====================
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('toast-removing');
+        setTimeout(() => toast.remove(), 300);
+    }, CONFIG.TOAST_DURATION);
+}
+
+// ==================== UI Renderer ====================
 
 class UIRenderer {
+
+    // ---------- Full Render ----------
+
     renderExchanges(exchanges) {
         const container = document.getElementById('exchanges-container');
         container.innerHTML = '';
 
-        // Sort exchanges by name
-        const sortedExchanges = Object.entries(exchanges).sort((a, b) =>
+        const sorted = Object.entries(exchanges).sort((a, b) =>
             a[1].name.localeCompare(b[1].name)
         );
 
-        for (const [exchangeId, exchangeData] of sortedExchanges) {
-            const exchangeCard = this.createExchangeCard(exchangeId, exchangeData);
-            container.appendChild(exchangeCard);
+        for (const [exchangeId, exchangeData] of sorted) {
+            container.appendChild(this.createExchangeCard(exchangeId, exchangeData));
         }
     }
 
@@ -94,35 +130,64 @@ class UIRenderer {
         const card = document.createElement('div');
         card.className = 'exchange-card';
         card.id = `exchange-${exchangeId}`;
+        card.dataset.exchange = exchangeId;
 
+        // Header
         const header = document.createElement('div');
         header.className = 'exchange-header';
+
+        const headerLeft = document.createElement('div');
+        headerLeft.className = 'exchange-header-left';
 
         const name = document.createElement('div');
         name.className = 'exchange-name';
         name.textContent = exchangeData.name;
 
-        const stats = document.createElement('div');
-        stats.className = 'exchange-stats';
+        const runningCount = document.createElement('div');
+        runningCount.className = 'exchange-running-count';
+        const running = exchangeData.services.filter(s => s.status === 'running').length;
+        const total = exchangeData.services.length;
+        runningCount.textContent = `${running}/${total} running`;
+        runningCount.id = `exchange-running-${exchangeId}`;
+
+        headerLeft.appendChild(name);
+        headerLeft.appendChild(runningCount);
+
+        const headerRight = document.createElement('div');
+        headerRight.className = 'exchange-header-right';
 
         const dataCount = document.createElement('div');
         dataCount.className = 'data-count';
-        dataCount.innerHTML = `Data Points: <span class="count-value">${exchangeData.total_data_points || 0}</span>`;
+        dataCount.id = `exchange-data-${exchangeId}`;
+        dataCount.innerHTML = `Data: <span class="count-value">${exchangeData.total_data_points || 0}</span>`;
 
-        stats.appendChild(dataCount);
-        header.appendChild(name);
-        header.appendChild(stats);
+        const startBtn = document.createElement('button');
+        startBtn.className = 'btn btn-exchange-start';
+        startBtn.textContent = 'Start All';
+        startBtn.onclick = () => this.handleStartExchange(exchangeId);
 
-        const servicesGrid = document.createElement('div');
-        servicesGrid.className = 'services-grid';
+        const stopBtn = document.createElement('button');
+        stopBtn.className = 'btn btn-exchange-stop';
+        stopBtn.textContent = 'Stop All';
+        stopBtn.onclick = () => this.handleStopExchange(exchangeId);
+
+        headerRight.appendChild(dataCount);
+        headerRight.appendChild(startBtn);
+        headerRight.appendChild(stopBtn);
+
+        header.appendChild(headerLeft);
+        header.appendChild(headerRight);
+
+        // Services grid
+        const grid = document.createElement('div');
+        grid.className = 'services-grid';
 
         for (const service of exchangeData.services) {
-            const serviceCard = this.createServiceCard(service);
-            servicesGrid.appendChild(serviceCard);
+            grid.appendChild(this.createServiceCard(service));
         }
 
         card.appendChild(header);
-        card.appendChild(servicesGrid);
+        card.appendChild(grid);
 
         return card;
     }
@@ -131,44 +196,78 @@ class UIRenderer {
         const card = document.createElement('div');
         card.className = `service-card ${service.status}`;
         card.id = `service-${service.id}`;
+        card.dataset.serviceId = service.id;
+        card.dataset.exchange = service.exchange;
+        card.dataset.name = service.name.toLowerCase();
+        card.dataset.type = service.type;
 
-        // Service Header
+        // Header row
         const header = document.createElement('div');
         header.className = 'service-header';
 
         const info = document.createElement('div');
         info.className = 'service-info';
 
-        const name = document.createElement('h3');
-        name.textContent = service.name;
+        const nameEl = document.createElement('h3');
+        nameEl.textContent = service.name;
 
-        const type = document.createElement('div');
-        type.className = 'service-type';
-        type.textContent = service.type;
+        const typeEl = document.createElement('div');
+        typeEl.className = `service-type ${service.type}`;
+        typeEl.textContent = service.type;
 
-        info.appendChild(name);
-        info.appendChild(type);
+        // Data type badges
+        const badgesContainer = document.createElement('div');
+        badgesContainer.className = 'data-badges';
 
-        const statusBadge = document.createElement('div');
-        statusBadge.className = `status-badge ${service.status}`;
-        statusBadge.textContent = service.status;
+        const dataTypes = service.data_types || [];
+        const dataCounts = service.data_counts || {};
 
-        header.appendChild(info);
-        header.appendChild(statusBadge);
+        for (const dt of dataTypes) {
+            const cfg = DATA_TYPE_CONFIG[dt];
+            if (!cfg) continue;
 
-        // Service Details
-        const details = document.createElement('div');
-        details.className = 'service-details';
+            const badge = document.createElement('span');
+            const count = dataCounts[dt] || 0;
+            const isActive = dt === 'funding' ? (dataCounts.ltp || 0) > 0 : count > 0;
 
-        const dataCountRow = this.createDetailRow('Data Points', service.data_count || 0);
-        details.appendChild(dataCountRow);
-
-        if (service.last_update) {
-            const lastUpdateRow = this.createDetailRow('Last Update', this.formatTime(service.last_update));
-            details.appendChild(lastUpdateRow);
+            badge.className = `data-badge ${cfg.cssClass} ${isActive ? 'active' : 'dimmed'}`;
+            badge.textContent = cfg.label;
+            badge.dataset.dataType = dt;
+            badgesContainer.appendChild(badge);
         }
 
-        // Service Actions
+        info.appendChild(nameEl);
+        info.appendChild(typeEl);
+        info.appendChild(badgesContainer);
+
+        card.dataset.dataTypes = dataTypes.join(' ');
+
+        // Status indicator
+        const statusIndicator = document.createElement('div');
+        statusIndicator.className = 'status-indicator';
+
+        const statusDot = document.createElement('div');
+        statusDot.className = `status-dot ${service.status}`;
+
+        const statusText = document.createElement('div');
+        statusText.className = 'status-text';
+        statusText.textContent = service.status;
+
+        statusIndicator.appendChild(statusDot);
+        statusIndicator.appendChild(statusText);
+
+        header.appendChild(info);
+        header.appendChild(statusIndicator);
+
+        // Details
+        const details = document.createElement('div');
+        details.className = 'service-details';
+        details.appendChild(this.createDetailRow('Data', this.formatDataBreakdown(dataTypes, dataCounts)));
+        if (service.last_update) {
+            details.appendChild(this.createDetailRow('Updated', this.formatTime(service.last_update)));
+        }
+
+        // Actions
         const actions = document.createElement('div');
         actions.className = 'service-actions';
 
@@ -182,7 +281,7 @@ class UIRenderer {
         stopBtn.className = 'btn btn-stop';
         stopBtn.textContent = 'Stop';
         stopBtn.onclick = () => this.handleStopService(service.id);
-        stopBtn.disabled = service.status === 'stopped' || service.status === 'stopping';
+        stopBtn.disabled = service.status === 'stopped' || service.status === 'stopping' || service.status === 'unknown';
 
         actions.appendChild(startBtn);
         actions.appendChild(stopBtn);
@@ -198,25 +297,149 @@ class UIRenderer {
         const row = document.createElement('div');
         row.className = 'detail-row';
 
-        const labelElem = document.createElement('div');
-        labelElem.className = 'detail-label';
-        labelElem.textContent = label;
+        const labelEl = document.createElement('div');
+        labelEl.className = 'detail-label';
+        labelEl.textContent = label;
 
-        const valueElem = document.createElement('div');
-        valueElem.className = 'detail-value';
-        valueElem.textContent = value;
+        const valueEl = document.createElement('div');
+        valueEl.className = 'detail-value';
+        valueEl.textContent = value;
 
-        row.appendChild(labelElem);
-        row.appendChild(valueElem);
+        row.appendChild(labelEl);
+        row.appendChild(valueEl);
 
         return row;
     }
 
-    updateHeaderStats(totalServices, runningServices) {
-        document.getElementById('total-services').textContent = totalServices;
-        document.getElementById('running-services').textContent = runningServices;
-        document.getElementById('last-update').textContent = this.formatTime(new Date().toISOString());
+    // ---------- Differential Updates ----------
+
+    updateExchanges(exchanges) {
+        for (const [exchangeId, exchangeData] of Object.entries(exchanges)) {
+            // Update exchange-level stats
+            const runningEl = document.getElementById(`exchange-running-${exchangeId}`);
+            if (runningEl) {
+                const running = exchangeData.services.filter(s => s.status === 'running').length;
+                const total = exchangeData.services.length;
+                runningEl.textContent = `${running}/${total} running`;
+            }
+
+            const dataEl = document.getElementById(`exchange-data-${exchangeId}`);
+            if (dataEl) {
+                dataEl.innerHTML = `Data: <span class="count-value">${exchangeData.total_data_points || 0}</span>`;
+            }
+
+            // Update each service card
+            for (const service of exchangeData.services) {
+                this.updateServiceCard(service);
+            }
+        }
     }
+
+    updateServiceCard(service) {
+        const card = document.getElementById(`service-${service.id}`);
+        if (!card) return;
+
+        // Update card class for border color
+        card.className = `service-card ${service.status}`;
+        if (card.classList.contains('hidden')) {
+            card.classList.add('hidden');
+        }
+
+        // Update status dot
+        const dot = card.querySelector('.status-dot');
+        if (dot) {
+            dot.className = `status-dot ${service.status}`;
+        }
+
+        // Update status text
+        const text = card.querySelector('.status-text');
+        if (text) {
+            text.textContent = service.status;
+        }
+
+        // Update data badges
+        const badges = card.querySelectorAll('.data-badge');
+        const dataCounts = service.data_counts || {};
+        for (const badge of badges) {
+            const dt = badge.dataset.dataType;
+            const count = dataCounts[dt] || 0;
+            const isActive = dt === 'funding' ? (dataCounts.ltp || 0) > 0 : count > 0;
+            badge.classList.toggle('active', isActive);
+            badge.classList.toggle('dimmed', !isActive);
+        }
+
+        // Update data breakdown
+        const detailValues = card.querySelectorAll('.detail-value');
+        const dataTypes = service.data_types || [];
+        if (detailValues.length > 0) {
+            detailValues[0].textContent = this.formatDataBreakdown(dataTypes, dataCounts);
+        }
+        if (detailValues.length > 1 && service.last_update) {
+            detailValues[1].textContent = this.formatTime(service.last_update);
+        }
+
+        // Update button states
+        const startBtn = card.querySelector('.btn-start');
+        const stopBtn = card.querySelector('.btn-stop');
+        if (startBtn) {
+            startBtn.disabled = service.status === 'running' || service.status === 'starting';
+            startBtn.textContent = 'Start';
+            startBtn.className = 'btn btn-start';
+        }
+        if (stopBtn) {
+            stopBtn.disabled = service.status === 'stopped' || service.status === 'stopping' || service.status === 'unknown';
+            stopBtn.textContent = 'Stop';
+            stopBtn.className = 'btn btn-stop';
+        }
+    }
+
+    // ---------- Header Stats ----------
+
+    updateHeaderStats(totalServices, runningServices) {
+        const totalEl = document.getElementById('total-services');
+        const runningEl = document.getElementById('running-services');
+        const stoppedEl = document.getElementById('stopped-services');
+
+        if (totalEl) totalEl.textContent = totalServices;
+        if (runningEl) runningEl.textContent = runningServices;
+        if (stoppedEl) stoppedEl.textContent = totalServices - runningServices;
+    }
+
+    // ---------- Search / Filter ----------
+
+    filterServices(query) {
+        const q = query.toLowerCase().trim();
+        const exchangeCards = document.querySelectorAll('.exchange-card');
+
+        for (const exchangeCard of exchangeCards) {
+            const serviceCards = exchangeCard.querySelectorAll('.service-card');
+            let visibleCount = 0;
+
+            for (const serviceCard of serviceCards) {
+                const name = serviceCard.dataset.name || '';
+                const exchange = serviceCard.dataset.exchange || '';
+                const type = serviceCard.dataset.type || '';
+                const dataTypes = serviceCard.dataset.dataTypes || '';
+
+                const matches = !q || name.includes(q) || exchange.includes(q) || type.includes(q) || dataTypes.includes(q);
+
+                if (matches) {
+                    serviceCard.classList.remove('hidden');
+                    visibleCount++;
+                } else {
+                    serviceCard.classList.add('hidden');
+                }
+            }
+
+            if (visibleCount === 0 && q) {
+                exchangeCard.classList.add('hidden');
+            } else {
+                exchangeCard.classList.remove('hidden');
+            }
+        }
+    }
+
+    // ---------- Loading / Error States ----------
 
     showLoading() {
         document.getElementById('loading').style.display = 'block';
@@ -236,95 +459,214 @@ class UIRenderer {
         document.getElementById('loading').style.display = 'none';
     }
 
+    // ---------- Helpers ----------
+
     formatTime(isoString) {
         if (!isoString) return 'N/A';
         const date = new Date(isoString);
         return date.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
-            second: '2-digit'
+            second: '2-digit',
         });
     }
 
+    formatDataBreakdown(dataTypes, dataCounts) {
+        if (!dataTypes || dataTypes.length === 0) return '0';
+        const parts = [];
+        for (const dt of dataTypes) {
+            const cfg = DATA_TYPE_CONFIG[dt];
+            if (!cfg) continue;
+            const count = dataCounts[dt] || 0;
+            parts.push(`${cfg.label}: ${count}`);
+        }
+        return parts.join(' | ');
+    }
+
+    // ---------- Service Action Handlers ----------
+
     async handleStartService(serviceId) {
-        const button = document.querySelector(`#service-${serviceId} .btn-start`);
-        const originalText = button.textContent;
-        button.textContent = 'Starting...';
-        button.disabled = true;
-        button.className = 'btn btn-loading';
+        const card = document.getElementById(`service-${serviceId}`);
+        const button = card ? card.querySelector('.btn-start') : null;
+        if (button) {
+            button.textContent = 'Starting...';
+            button.disabled = true;
+            button.className = 'btn btn-loading';
+        }
 
         try {
-            await apiClient.startService(serviceId);
-            console.log(`Start command sent for ${serviceId}`);
-            // Status will update on next refresh
+            await api.startService(serviceId);
+            showToast(`Start command sent for ${serviceId}`, 'success');
         } catch (error) {
             console.error(`Error starting service ${serviceId}:`, error);
-            alert(`Failed to start service: ${error.message}`);
-            button.textContent = originalText;
-            button.disabled = false;
-            button.className = 'btn btn-start';
+            showToast(`Failed to start ${serviceId}: ${error.message}`, 'error');
+            if (button) {
+                button.textContent = 'Start';
+                button.disabled = false;
+                button.className = 'btn btn-start';
+            }
         }
     }
 
     async handleStopService(serviceId) {
-        const button = document.querySelector(`#service-${serviceId} .btn-stop`);
-        const originalText = button.textContent;
-        button.textContent = 'Stopping...';
-        button.disabled = true;
-        button.className = 'btn btn-loading';
+        const card = document.getElementById(`service-${serviceId}`);
+        const button = card ? card.querySelector('.btn-stop') : null;
+        if (button) {
+            button.textContent = 'Stopping...';
+            button.disabled = true;
+            button.className = 'btn btn-loading';
+        }
 
         try {
-            await apiClient.stopService(serviceId);
-            console.log(`Stop command sent for ${serviceId}`);
-            // Status will update on next refresh
+            await api.stopService(serviceId);
+            showToast(`Stop command sent for ${serviceId}`, 'success');
         } catch (error) {
             console.error(`Error stopping service ${serviceId}:`, error);
-            alert(`Failed to stop service: ${error.message}`);
-            button.textContent = originalText;
-            button.disabled = false;
-            button.className = 'btn btn-stop';
+            showToast(`Failed to stop ${serviceId}: ${error.message}`, 'error');
+            if (button) {
+                button.textContent = 'Stop';
+                button.disabled = false;
+                button.className = 'btn btn-stop';
+            }
+        }
+    }
+
+    // ---------- Bulk Action Handlers ----------
+
+    async handleStartAll() {
+        const btn = document.getElementById('start-all-btn');
+        if (btn) btn.disabled = true;
+
+        try {
+            await api.startAll();
+            showToast('Start commands sent for all services', 'success');
+        } catch (error) {
+            console.error('Error starting all services:', error);
+            showToast(`Failed to start all: ${error.message}`, 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async handleStopAll() {
+        const btn = document.getElementById('stop-all-btn');
+        if (btn) btn.disabled = true;
+
+        try {
+            await api.stopAll();
+            showToast('Stop commands sent for all services', 'success');
+        } catch (error) {
+            console.error('Error stopping all services:', error);
+            showToast(`Failed to stop all: ${error.message}`, 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async handleStartExchange(exchangeId) {
+        try {
+            await api.startExchange(exchangeId);
+            showToast(`Start commands sent for ${exchangeId}`, 'success');
+        } catch (error) {
+            console.error(`Error starting exchange ${exchangeId}:`, error);
+            showToast(`Failed to start ${exchangeId}: ${error.message}`, 'error');
+        }
+    }
+
+    async handleStopExchange(exchangeId) {
+        try {
+            await api.stopExchange(exchangeId);
+            showToast(`Stop commands sent for ${exchangeId}`, 'success');
+        } catch (error) {
+            console.error(`Error stopping exchange ${exchangeId}:`, error);
+            showToast(`Failed to stop ${exchangeId}: ${error.message}`, 'error');
         }
     }
 }
 
-const uiRenderer = new UIRenderer();
+const ui = new UIRenderer();
 
 // ==================== Application Controller ====================
 
 class DashboardApp {
     constructor() {
         this.refreshCountdown = CONFIG.REFRESH_INTERVAL / 1000;
+        this._searchDebounceTimer = null;
     }
 
     async initialize() {
         console.log('Initializing Crypto Price LTP Dashboard...');
+        this.bindGlobalEvents();
         await this.loadData();
         this.startAutoRefresh();
         this.startCountdown();
     }
 
+    bindGlobalEvents() {
+        // Start All
+        const startAllBtn = document.getElementById('start-all-btn');
+        if (startAllBtn) {
+            startAllBtn.addEventListener('click', () => ui.handleStartAll());
+        }
+
+        // Stop All
+        const stopAllBtn = document.getElementById('stop-all-btn');
+        if (stopAllBtn) {
+            stopAllBtn.addEventListener('click', () => ui.handleStopAll());
+        }
+
+        // Search input with debounce
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(this._searchDebounceTimer);
+                this._searchDebounceTimer = setTimeout(() => {
+                    state.searchQuery = e.target.value;
+                    ui.filterServices(e.target.value);
+                }, CONFIG.SEARCH_DEBOUNCE);
+            });
+        }
+    }
+
     async loadData() {
         if (state.isLoading) return;
-
         state.isLoading = true;
 
         try {
-            const data = await apiClient.fetchStatus();
+            const data = await api.fetchStatus();
 
             if (data.success) {
                 state.services = data.services;
                 state.exchanges = data.exchanges;
                 state.lastUpdate = new Date();
 
-                uiRenderer.hideLoading();
-                uiRenderer.renderExchanges(data.exchanges);
-                uiRenderer.updateHeaderStats(data.total_services, data.running_services);
+                ui.hideLoading();
+
+                const serviceCount = data.services.length;
+                if (state.isFirstRender || serviceCount !== state.previousServiceCount) {
+                    // Full render on first load or when service count changes
+                    ui.renderExchanges(data.exchanges);
+                    state.isFirstRender = false;
+                    state.previousServiceCount = serviceCount;
+
+                    // Re-apply search filter after full render
+                    if (state.searchQuery) {
+                        ui.filterServices(state.searchQuery);
+                    }
+                } else {
+                    // Differential update
+                    ui.updateExchanges(data.exchanges);
+                }
+
+                ui.updateHeaderStats(data.total_services, data.running_services);
             } else {
                 throw new Error('Failed to fetch status');
             }
         } catch (error) {
             console.error('Error loading data:', error);
-            uiRenderer.showError(`Failed to load dashboard: ${error.message}`);
+            if (state.isFirstRender) {
+                ui.showError(`Failed to load dashboard: ${error.message}`);
+            }
         } finally {
             state.isLoading = false;
         }
@@ -351,30 +693,25 @@ class DashboardApp {
             if (this.refreshCountdown < 0) {
                 this.refreshCountdown = CONFIG.REFRESH_INTERVAL / 1000;
             }
-            document.getElementById('refresh-countdown').textContent = this.refreshCountdown;
+            const el = document.getElementById('refresh-countdown');
+            if (el) el.textContent = this.refreshCountdown;
         }, 1000);
     }
 
     cleanup() {
-        if (state.refreshTimer) {
-            clearInterval(state.refreshTimer);
-        }
-        if (state.countdownTimer) {
-            clearInterval(state.countdownTimer);
-        }
+        if (state.refreshTimer) clearInterval(state.refreshTimer);
+        if (state.countdownTimer) clearInterval(state.countdownTimer);
     }
 }
 
-// ==================== Application Entry Point ====================
+// ==================== Entry Point ====================
 
 const app = new DashboardApp();
 
-// Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => app.initialize());
 } else {
     app.initialize();
 }
 
-// Cleanup on page unload
 window.addEventListener('beforeunload', () => app.cleanup());

@@ -7,43 +7,65 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Crypto Price LTP Control Panel</h1>
-            <div class="header-stats">
-                <div class="stat-item">
-                    <span class="stat-label">Total Services:</span>
-                    <span id="total-services" class="stat-value">-</span>
+    <div class="dashboard">
+        <!-- Header -->
+        <header class="glass-card glass-header">
+            <div class="header-content">
+                <div class="header-left">
+                    <h1>Crypto Price LTP</h1>
+                    <span class="version-tag" id="version-tag">v-</span>
                 </div>
-                <div class="stat-item">
-                    <span class="stat-label">Running:</span>
-                    <span id="running-services" class="stat-value">-</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Last Update:</span>
-                    <span id="last-update" class="stat-value">-</span>
+                <div class="header-stats">
+                    <div class="stat-chip">
+                        <span class="stat-label">Total</span>
+                        <span class="stat-value" id="total-services">-</span>
+                    </div>
+                    <div class="stat-chip stat-running">
+                        <span class="stat-label">Running</span>
+                        <span class="stat-value" id="running-services">-</span>
+                    </div>
+                    <div class="stat-chip">
+                        <span class="stat-label">Stopped</span>
+                        <span class="stat-value" id="stopped-services">-</span>
+                    </div>
                 </div>
             </div>
         </header>
 
+        <!-- Global Action Bar -->
+        <div class="global-actions glass-card">
+            <div class="action-bar-left">
+                <input type="text" id="search-input" class="search-input" placeholder="Filter services..." />
+            </div>
+            <div class="action-bar-right">
+                <button id="start-all-btn" class="btn btn-start-all">Start All</button>
+                <button id="stop-all-btn" class="btn btn-stop-all">Stop All</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
         <main>
-            <div id="exchanges-container">
-                <!-- Exchange cards will be dynamically inserted here -->
-            </div>
-
-            <div id="loading" class="loading">
-                <div class="spinner"></div>
-                <p>Loading services...</p>
-            </div>
-
-            <div id="error-message" class="error-message" style="display: none;">
-                <p id="error-text"></p>
-                <button onclick="location.reload()">Retry</button>
-            </div>
+            <div id="exchanges-container"></div>
         </main>
 
+        <!-- Loading -->
+        <div id="loading" class="loading glass-card">
+            <div class="spinner"></div>
+            <p>Loading services...</p>
+        </div>
+
+        <!-- Error -->
+        <div id="error-message" class="error-message glass-card" style="display: none;">
+            <p id="error-text"></p>
+            <button onclick="location.reload()">Retry</button>
+        </div>
+
+        <!-- Toast container for notifications -->
+        <div id="toast-container" class="toast-container"></div>
+
+        <!-- Footer -->
         <footer>
-            <p>Crypto Price LTP System v1.0 | Auto-refresh: <span id="refresh-countdown">2</span>s</p>
+            <p>Crypto Price LTP | Auto-refresh: <span id="refresh-countdown">2</span>s</p>
         </footer>
     </div>
 

@@ -2,8 +2,8 @@
 Version management for Crypto Price LTP system
 """
 
-VERSION = "1.0.3"
-BUILD_DATE = "2025-11-24"
+VERSION = "1.1.0"
+BUILD_DATE = "2026-02-20"
 
 def get_version():
     """Get the current version of the system"""

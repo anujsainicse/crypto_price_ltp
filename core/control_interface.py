@@ -203,18 +203,60 @@ class ControlInterface:
         """
         prefixes = [
             'bybit_spot',
+            'bybit_futures_ob',
+            'bybit_options',
             'bybit_spot_testnet',
             'bybit_futures_testnet',
             'bybit_options_testnet',
+            'coindcx_spot',
             'coindcx_futures',
+            'delta_spot',
             'delta_futures',
             'delta_options',
+            'hyperliquid_spot',
+            'hyperliquid_futures',
             'binance_spot',
-            'binance_options'
+            'binance_options',
         ]
 
         counts = {}
         for prefix in prefixes:
-            counts[prefix] = self.get_exchange_data_count(prefix)
+            # Count base (LTP) + orderbook (_ob) + trades (_trades) keys
+            ltp = self.get_exchange_data_count(prefix)
+            ob = self.get_exchange_data_count(f"{prefix}_ob")
+            trades = self.get_exchange_data_count(f"{prefix}_trades")
+            counts[prefix] = ltp + ob + trades
 
         return counts
+
+    def get_all_data_counts_breakdown(self) -> Dict[str, Dict[str, int]]:
+        """Get per-type data counts for all exchanges.
+
+        Returns:
+            Dict mapping prefix to {ltp: N, orderbook: N, trades: N}
+        """
+        prefixes = [
+            'bybit_spot',
+            'bybit_futures_ob',
+            'bybit_options',
+            'bybit_spot_testnet',
+            'bybit_futures_testnet',
+            'coindcx_spot',
+            'coindcx_futures',
+            'delta_spot',
+            'delta_futures',
+            'delta_options',
+            'hyperliquid_spot',
+            'hyperliquid_futures',
+            'binance_spot',
+        ]
+
+        breakdown = {}
+        for prefix in prefixes:
+            breakdown[prefix] = {
+                'ltp': self.get_exchange_data_count(prefix),
+                'orderbook': self.get_exchange_data_count(f"{prefix}_ob"),
+                'trades': self.get_exchange_data_count(f"{prefix}_trades"),
+            }
+
+        return breakdown
