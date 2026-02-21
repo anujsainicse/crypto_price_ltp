@@ -69,6 +69,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
 | **Bybit** | `bybit_options_testnet` | Options (Testnet) | All available (dynamic) | LTP + Greeks + IV |
 | **Binance** | `binance_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
+| **Binance** | `binance_options` | Options | BTC, ETH (all strikes) | LTP + Greeks + IV |
 | **CoinDCX** | `coindcx_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | Orderbook + Trades (LTP from mid_price) |
 | **CoinDCX** | `coindcx_futures_rest` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Delta** | `delta_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | Orderbook + Trades (LTP from mid_price) |
