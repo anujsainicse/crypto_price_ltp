@@ -46,7 +46,10 @@ app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 @app.get("/")
 async def index():
     """Serve the dashboard homepage."""
-    return FileResponse(str(static_path / "index.html"))
+    return FileResponse(
+        str(static_path / "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 
 # ==================== Service Metadata ====================
@@ -446,7 +449,7 @@ def main():
 
     uvicorn.run(
         "web_dashboard:app",
-        host="0.0.0.0",
+        host="::",
         port=PORT,
         log_level="info",
         reload=False
