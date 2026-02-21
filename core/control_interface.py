@@ -209,7 +209,8 @@ class ControlInterface:
             'coindcx_futures',
             'delta_futures',
             'delta_options',
-            'binance_spot'
+            'binance_spot',
+            'binance_options'
         ]
 
         counts = {}

@@ -419,3 +419,42 @@ binance:
       trades_enabled: true
       trades_limit: 50
       trades_redis_prefix: "binance_spot_trades"
+
+    options:
+      enabled: true
+      auto_start: true
+
+      # API endpoints
+      rest_api_url: "https://eapi.binance.com/eapi/v1/exchangeInfo"
+      websocket_url: "wss://nbstream.binance.com/eoptions/ws"
+
+      # Symbol filtering
+      underlying_assets:
+        - "BTC"
+        - "ETH"
+      subscribe_all: false           # false = top N by nearest expiry per underlying
+      max_symbols_per_asset: 100     # Top 100 per underlying (sorted by nearest expiry)
+      max_active_symbols: 500
+
+      # Connection settings (Binance eOptions: max 200 streams per connection)
+      max_streams_per_connection: 180  # Leave headroom below 200 limit
+      subscription_batch_size: 50      # Params per SUBSCRIBE message
+      subscription_batch_delay: 0.1    # Seconds between subscription batches
+      symbol_refresh_interval: 3600    # Refresh symbols every 1 hour
+
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+
+      # Redis
+      redis_prefix: "binance_options"
+      redis_ttl: 60
+
+      # Orderbook (optional - disabled by default, ticker data only)
+      orderbook_enabled: false
+      orderbook_depth: 20              # 10, 20, 50, or 100
+      orderbook_redis_prefix: "binance_options_ob"
+
+      # Trades (optional - disabled by default)
+      trades_enabled: false
+      trades_limit: 50
+      trades_redis_prefix: "binance_options_trades"

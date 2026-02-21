@@ -181,6 +181,12 @@ async def get_status() -> Dict:
                 'exchange': 'binance',
                 'type': 'spot',
                 'redis_prefix': 'binance_spot'
+            },
+            'binance_options': {
+                'name': 'Binance Options',
+                'exchange': 'binance',
+                'type': 'options',
+                'redis_prefix': 'binance_options'
             }
         }
 
