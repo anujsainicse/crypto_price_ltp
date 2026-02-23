@@ -216,6 +216,7 @@ class ControlInterface:
             'hyperliquid_spot',
             'hyperliquid_futures',
             'binance_spot',
+            'binance_futures',
             'binance_options',
         ]
 
@@ -241,6 +242,7 @@ class ControlInterface:
             'bybit_options',
             'bybit_spot_testnet',
             'bybit_futures_testnet',
+            'bybit_options_testnet',
             'coindcx_spot',
             'coindcx_futures',
             'delta_spot',
@@ -249,6 +251,8 @@ class ControlInterface:
             'hyperliquid_spot',
             'hyperliquid_futures',
             'binance_spot',
+            'binance_futures',
+            'binance_options',
         ]
 
         breakdown = {}
