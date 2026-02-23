@@ -467,6 +467,33 @@ binance:
       trades_limit: 50
       trades_redis_prefix: "binance_spot_trades"
 
+    futures:
+      enabled: true
+      auto_start: true
+      websocket_url: "wss://fstream.binance.com"
+      symbols:
+        - "BTCUSDT"
+        - "ETHUSDT"
+        - "SOLUSDT"
+        - "BNBUSDT"
+        - "DOGEUSDT"
+      reconnect_interval: 5
+      max_reconnect_attempts: 10
+      redis_prefix: "binance_futures"
+      redis_ttl: 60
+      quote_currencies:
+        - "USDT"
+      # Orderbook (Binance USD-M Futures partial depth: max 20 levels)
+      orderbook_enabled: true
+      orderbook_depth: 20
+      orderbook_redis_prefix: "binance_futures_ob"
+      # Trades (aggTrade stream)
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "binance_futures_trades"
+      # Funding rate (markPrice stream)
+      funding_enabled: true
+
     options:
       enabled: true
       auto_start: true
