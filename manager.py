@@ -25,6 +25,7 @@ from services.bybit_f_testnet import BybitFuturesTestnetService
 from services.bybit_o_testnet import BybitOptionsTestnetService
 from services.binance_s import BinanceSpotService
 from services.binance_o import BinanceOptionsService
+from services.binance_f import BinanceFuturesService
 
 
 class ServiceManager:
@@ -285,6 +286,18 @@ class ServiceManager:
                     'config': options_config
                 }
                 self.logger.info("✓ Binance Options Service loaded")
+
+            # Binance Futures Service
+            futures_config = services_config.get('futures', {})
+            if futures_config.get('enabled', False):
+                service = BinanceFuturesService(futures_config)
+                self.services.append(service)
+                self.service_registry['binance_futures'] = {
+                    'service': service,
+                    'task': None,
+                    'config': futures_config
+                }
+                self.logger.info("✓ Binance Futures Service loaded")
 
     async def start_service(self, service_id: str) -> bool:
         """Start a specific service.
