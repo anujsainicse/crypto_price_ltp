@@ -9,7 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict
+from pydantic import BaseModel
+from typing import Dict, Optional
 from pathlib import Path
 
 from core.control_interface import ControlInterface
@@ -291,9 +292,11 @@ async def get_status() -> Dict:
 
 @app.post("/api/service/{service_id}/start")
 async def start_service(service_id: str) -> Dict:
-    """Start a service."""
+    """Start a service. Sets a persistent (no-expiry) dashboard lease."""
     try:
         logger.info(f"Received start command for service: {service_id}")
+        # Set persistent lease so health monitor never auto-stops this service
+        control.set_service_lease(service_id, source="dashboard", ttl=None)
         success = control.send_start_command(service_id)
 
         if success:
@@ -312,9 +315,11 @@ async def start_service(service_id: str) -> Dict:
 
 @app.post("/api/service/{service_id}/stop")
 async def stop_service(service_id: str) -> Dict:
-    """Stop a service."""
+    """Stop a service. Revokes its lease so it stays stopped after health check."""
     try:
         logger.info(f"Received stop command for service: {service_id}")
+        # Revoke lease first, so health monitor won't restart it
+        control.revoke_service_lease(service_id)
         success = control.send_stop_command(service_id)
 
         if success:
@@ -329,6 +334,120 @@ async def stop_service(service_id: str) -> Dict:
     except Exception as e:
         logger.error(f"Error stopping service {service_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class LeaseRequest(BaseModel):
+    source: str = "dashboard"
+    bot_id: Optional[str] = None
+
+
+@app.post("/api/service/{service_id}/lease")
+async def acquire_service_lease(service_id: str, request: LeaseRequest) -> Dict:
+    """Acquire or refresh a timed lease for an on-demand service.
+
+    Called by scalper backend when a bot starts or when user selects an
+    exchange in the dropdown (pre-warm). If the service is not running, a
+    start command is sent automatically.
+
+    Source values:
+      - 'scalper_bot':     Bot started on this exchange (1-hour TTL)
+      - 'scalper_prewarm': User selected exchange in UI (1-hour TTL)
+      - 'dashboard':       Manual dashboard start (persistent, no TTL)
+    """
+    services_info = _get_services_info()
+    if service_id not in services_info:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
+
+    source = request.source
+    ttl = None if source == "dashboard" else 3600
+
+    try:
+        control.set_service_lease(service_id, source=source,
+                                  bot_id=request.bot_id, ttl=ttl)
+
+        # Start the service if not already running
+        status_data = control.get_service_status(service_id)
+        current_status = (status_data.get('status', 'unknown')
+                          if status_data else 'unknown')
+
+        start_triggered = False
+        if current_status not in ('running', 'starting'):
+            control.send_start_command(service_id)
+            start_triggered = True
+            logger.info(f"Start command triggered for {service_id} via lease acquisition")
+
+        lease_ttl = control.get_lease_ttl(service_id)
+        return {
+            'success': True,
+            'service_id': service_id,
+            'service_status': current_status,
+            'start_triggered': start_triggered,
+            'lease_ttl_seconds': lease_ttl if lease_ttl >= 0 else None,
+        }
+    except Exception as e:
+        logger.error(f"Error acquiring lease for {service_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/service/{service_id}/heartbeat")
+async def heartbeat_service_lease(service_id: str) -> Dict:
+    """Refresh the TTL on an active service lease.
+
+    Called by the scalper heartbeat background task every 30 minutes while
+    any bot remains active for this exchange. Resets the TTL to 3600 seconds.
+    Returns success=False (without error) if no lease exists.
+    """
+    services_info = _get_services_info()
+    if service_id not in services_info:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
+
+    refreshed = control.refresh_service_lease(service_id, ttl=3600)
+    lease_ttl = control.get_lease_ttl(service_id)
+
+    return {
+        'success': refreshed,
+        'service_id': service_id,
+        'lease_refreshed': refreshed,
+        'lease_ttl_seconds': lease_ttl if lease_ttl >= 0 else None,
+        'message': 'Lease refreshed' if refreshed else 'No active lease to refresh',
+    }
+
+
+@app.delete("/api/service/{service_id}/lease")
+async def release_service_lease(service_id: str) -> Dict:
+    """Release a service lease immediately.
+
+    The health monitor will stop the service within its next cycle (~30s).
+    """
+    services_info = _get_services_info()
+    if service_id not in services_info:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
+
+    control.revoke_service_lease(service_id)
+    return {
+        'success': True,
+        'service_id': service_id,
+        'message': f"Lease released for {service_id}. Service stops within ~30s.",
+    }
+
+
+@app.get("/api/service/{service_id}/lease")
+async def get_service_lease_status(service_id: str) -> Dict:
+    """Get current lease information for a service."""
+    services_info = _get_services_info()
+    if service_id not in services_info:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
+
+    lease = control.get_service_lease(service_id)
+    ttl = control.get_lease_ttl(service_id)
+
+    return {
+        'service_id': service_id,
+        'has_lease': lease is not None,
+        'lease': lease,
+        'lease_ttl_seconds': ttl if ttl >= 0 else None,
+        'is_persistent': ttl == -1,
+    }
 
 
 @app.post("/api/services/start-all")

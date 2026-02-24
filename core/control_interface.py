@@ -172,6 +172,94 @@ class ControlInterface:
             return json.loads(data)
         return None
 
+    # ==================== Lease Management ====================
+
+    LEASE_PREFIX = "service:lease"
+
+    def set_service_lease(
+        self,
+        service_id: str,
+        source: str = "dashboard",
+        bot_id: Optional[str] = None,
+        ttl: Optional[int] = 3600
+    ) -> bool:
+        """Create or refresh a service lease.
+
+        Args:
+            service_id: Service identifier (e.g., 'delta_futures_ltp')
+            source: Who is requesting the lease: 'scalper_bot', 'scalper_prewarm',
+                    or 'dashboard'
+            bot_id: Optional bot UUID for scalper-originated leases
+            ttl: Seconds until auto-expiry. None means persistent (no expiry),
+                 used for dashboard-started services.
+
+        Returns:
+            True if lease was set successfully
+        """
+        key = f"{self.LEASE_PREFIX}:{service_id}"
+        lease_data = json.dumps({
+            'source': source,
+            'bot_id': bot_id,
+            'created_at': datetime.utcnow().isoformat(),
+            'last_heartbeat': datetime.utcnow().isoformat(),
+        })
+        if ttl is None:
+            # Persistent lease - dashboard started, never auto-expires
+            return self.redis_client.set(key, lease_data)
+        else:
+            return self.redis_client.set_ex(key, ttl, lease_data)
+
+    def refresh_service_lease(self, service_id: str, ttl: int = 3600) -> bool:
+        """Refresh an existing lease, resetting its TTL.
+
+        Args:
+            service_id: Service identifier
+            ttl: New TTL in seconds (default 3600)
+
+        Returns:
+            True if lease existed and was refreshed. False if no lease found.
+        """
+        key = f"{self.LEASE_PREFIX}:{service_id}"
+        existing = self.redis_client.get(key)
+        if existing is None:
+            return False
+        try:
+            data = json.loads(existing)
+            data['last_heartbeat'] = datetime.utcnow().isoformat()
+        except (json.JSONDecodeError, AttributeError):
+            data = {'last_heartbeat': datetime.utcnow().isoformat()}
+        return self.redis_client.set_ex(key, ttl, json.dumps(data))
+
+    def get_service_lease(self, service_id: str) -> Optional[Dict]:
+        """Get current lease metadata for a service.
+
+        Returns:
+            Lease dict with 'source', 'bot_id', 'created_at', 'last_heartbeat',
+            or None if no active lease exists.
+        """
+        key = f"{self.LEASE_PREFIX}:{service_id}"
+        data = self.redis_client.get(key)
+        if data:
+            return json.loads(data)
+        return None
+
+    def get_lease_ttl(self, service_id: str) -> int:
+        """Get remaining TTL of a service lease.
+
+        Returns:
+            Seconds remaining, -1 if persistent (no expiry), -2 if no lease.
+        """
+        key = f"{self.LEASE_PREFIX}:{service_id}"
+        return self.redis_client.get_ttl(key)
+
+    def revoke_service_lease(self, service_id: str) -> bool:
+        """Delete a service lease immediately.
+
+        The service will be stopped within the next health monitor cycle (~30s).
+        """
+        key = f"{self.LEASE_PREFIX}:{service_id}"
+        return self.redis_client.delete_key(key)
+
     # ==================== Helper Methods ====================
 
     def is_redis_connected(self) -> bool:

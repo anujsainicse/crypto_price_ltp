@@ -28,6 +28,13 @@ from services.binance_o import BinanceOptionsService
 from services.binance_f import BinanceFuturesService
 
 
+# Always-on services: start on boot, never stopped by lease expiry
+ALWAYS_ON_SERVICES: frozenset = frozenset({
+    'bybit_spot',
+    'bybit_spot_testnet_spot',
+})
+
+
 class ServiceManager:
     """Manages all exchange services."""
 
@@ -407,11 +414,10 @@ class ServiceManager:
             await asyncio.sleep(self.control_check_interval)
 
     async def monitor_service_health(self):
-        """Monitor service health and restart crashed services."""
+        """Monitor service health, restart crashed services, and stop on-demand services
+        whose leases have expired."""
         while self.running:
             try:
-                current_time = asyncio.get_event_loop().time()
-
                 for service_id, service_info in self.service_registry.items():
                     task = service_info.get('task')
 
@@ -425,6 +431,17 @@ class ServiceManager:
                         if status and status not in ['stopped', 'stopping', 'error']:
                             await self._handle_crashed_service(service_id)
 
+                    # Check lease expiry for running on-demand services
+                    elif (task and not task.done()
+                          and service_id not in ALWAYS_ON_SERVICES):
+                        lease = self.control.get_service_lease(service_id)
+                        if lease is None:
+                            self.logger.warning(
+                                f"Lease expired for on-demand service '{service_id}'. "
+                                f"Stopping service."
+                            )
+                            await self.stop_service(service_id)
+
             except Exception as e:
                 self.logger.error(f"Error in health monitor: {e}")
 
@@ -436,6 +453,19 @@ class ServiceManager:
         Args:
             service_id: Service identifier
         """
+        # For on-demand services, only restart if lease is still active.
+        # A crashed service with an expired lease should stay stopped.
+        if service_id not in ALWAYS_ON_SERVICES:
+            lease = self.control.get_service_lease(service_id)
+            if lease is None:
+                self.logger.info(
+                    f"Service '{service_id}' crashed but its lease has expired. "
+                    f"Marking as stopped, no restart."
+                )
+                self.control.update_service_status(service_id, 'stopped')
+                self.service_registry[service_id]['task'] = None
+                return
+
         current_time = asyncio.get_event_loop().time()
 
         # Initialize restart tracking for this service
@@ -544,6 +574,25 @@ class ServiceManager:
                 await self.start_service(service_id)
                 # Small delay between starting services
                 await asyncio.sleep(1)
+
+        # Resume on-demand services with active leases (handles manager restarts
+        # while scalper bots were still active)
+        lease_resume_services = []
+        for service_id in self.service_registry.keys():
+            if service_id in ALWAYS_ON_SERVICES:
+                continue
+            lease = self.control.get_service_lease(service_id)
+            if lease is not None:
+                lease_resume_services.append(service_id)
+
+        if lease_resume_services:
+            self.logger.info(
+                f"Resuming {len(lease_resume_services)} on-demand services "
+                f"with active leases: {lease_resume_services}"
+            )
+            for service_id in lease_resume_services:
+                await self.start_service(service_id)
+                await asyncio.sleep(0.5)
 
         self.logger.info("=" * 80)
         self.logger.info("Service Manager ready")

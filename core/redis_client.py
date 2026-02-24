@@ -347,6 +347,18 @@ class RedisClient:
             self.logger.error(f"Failed to set trades data for {key}: {e}")
             return False
 
+    def get_ttl(self, key: str) -> int:
+        """Get remaining TTL of a key in seconds.
+
+        Returns:
+            TTL in seconds, -1 if key exists with no expiry, -2 if key does not exist.
+        """
+        try:
+            return self._client.ttl(key)
+        except Exception as e:
+            self.logger.error(f"Failed to get TTL for key {key}: {e}")
+            return -2
+
     def close(self):
         """Close Redis connection."""
         if self._client:

@@ -36,7 +36,7 @@ bybit:
 
     futures_orderbook:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://stream.bybit.com/v5/public/linear"
       symbols:
         - "BTCUSDT"
@@ -55,7 +55,7 @@ bybit:
 
     options:
       enabled: true
-      auto_start: true
+      auto_start: false
 
       # API endpoints
       websocket_url: "wss://stream.bybit.com/v5/public/option"
@@ -92,7 +92,7 @@ coindcx:
   services:
     spot:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://stream.coindcx.com"
       symbols:
         - "KC-BTC_USDT"
@@ -119,7 +119,7 @@ coindcx:
     # NEW: Unified REST-based futures service (replaces futures_ltp and funding_rate)
     futures_rest:
       enabled: true
-      auto_start: true
+      auto_start: false
       # API endpoints
       ltp_api_url: "https://public.coindcx.com/market_data/v3/current_prices/futures/rt"
       orderbook_api_url: "https://public.coindcx.com/market_data/orderbook"
@@ -161,7 +161,7 @@ delta:
   services:
     futures_ltp:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://socket.india.delta.exchange"
       symbols:
         - "BTCUSD"
@@ -188,7 +188,7 @@ delta:
 
     options:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://socket.india.delta.exchange"
       # Dynamic symbol discovery - fetches valid symbols from REST API
       use_dynamic_discovery: true
@@ -217,7 +217,7 @@ delta:
 
     spot:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://socket.india.delta.exchange"
       symbols:
         - "BTCUSD"
@@ -247,7 +247,7 @@ hyperliquid:
   services:
     spot:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://api.hyperliquid.xyz/ws"
       symbols:
         - "BTC"
@@ -270,7 +270,7 @@ hyperliquid:
 
     perpetual:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://api.hyperliquid.xyz/ws"
       symbols:
         - "BTC"
@@ -440,7 +440,7 @@ binance:
   services:
     spot:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://stream.binance.com:9443"
       symbols:
         - "BTCUSDT"
@@ -469,7 +469,7 @@ binance:
 
     futures:
       enabled: true
-      auto_start: true
+      auto_start: false
       websocket_url: "wss://fstream.binance.com"
       symbols:
         - "BTCUSDT"
@@ -496,7 +496,7 @@ binance:
 
     options:
       enabled: true
-      auto_start: true
+      auto_start: false
 
       # API endpoints
       rest_api_url: "https://eapi.binance.com/eapi/v1/exchangeInfo"
