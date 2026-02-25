@@ -509,6 +509,18 @@ class ServiceManager:
             self.logger.info(f"Service '{service_id}' was stopped during cooldown, skipping restart")
             return
 
+        # Re-check lease after cooldown — it may have expired while we were waiting.
+        if service_id not in ALWAYS_ON_SERVICES:
+            lease = self.control.get_service_lease(service_id)
+            if lease is None:
+                self.logger.info(
+                    f"Service '{service_id}' lease expired during restart cooldown. "
+                    f"Marking as stopped, no restart."
+                )
+                self.control.update_service_status(service_id, 'stopped')
+                self.service_registry[service_id]['task'] = None
+                return
+
         # Recreate service instance with fresh state
         config = self.service_registry[service_id]['config']
         old_service = self.service_registry[service_id]['service']
@@ -656,7 +668,7 @@ class ServiceManager:
             # Set running flag
             self.running = True
 
-            # Wait for control commands (don't auto-start services)
+            # Start always-on services, resume leased on-demand services, then process commands
             await self.wait_for_commands()
 
         except KeyboardInterrupt:

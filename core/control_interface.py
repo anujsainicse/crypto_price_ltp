@@ -15,6 +15,7 @@ class ControlInterface:
         self.CONTROL_PREFIX = "service:control"
         self.STATUS_PREFIX = "service:status"
         self.STATS_PREFIX = "service:stats"
+        self.LEASE_PREFIX = "service:lease"
 
     # ==================== Control Commands ====================
 
@@ -174,8 +175,6 @@ class ControlInterface:
 
     # ==================== Lease Management ====================
 
-    LEASE_PREFIX = "service:lease"
-
     def set_service_lease(
         self,
         service_id: str,
@@ -212,9 +211,12 @@ class ControlInterface:
     def refresh_service_lease(self, service_id: str, ttl: int = 3600) -> bool:
         """Refresh an existing lease, resetting its TTL.
 
+        Persistent leases (TTL == -1, set by dashboard) are not downgraded —
+        only the last_heartbeat timestamp is updated.
+
         Args:
             service_id: Service identifier
-            ttl: New TTL in seconds (default 3600)
+            ttl: New TTL in seconds (default 3600), ignored for persistent leases
 
         Returns:
             True if lease existed and was refreshed. False if no lease found.
@@ -228,6 +230,10 @@ class ControlInterface:
             data['last_heartbeat'] = datetime.utcnow().isoformat()
         except (json.JSONDecodeError, AttributeError):
             data = {'last_heartbeat': datetime.utcnow().isoformat()}
+        # Preserve persistence: if the lease has no expiry, keep it that way.
+        current_ttl = self.redis_client.get_ttl(key)
+        if current_ttl == -1:
+            return self.redis_client.set(key, json.dumps(data))
         return self.redis_client.set_ex(key, ttl, json.dumps(data))
 
     def get_service_lease(self, service_id: str) -> Optional[Dict]:

@@ -371,10 +371,19 @@ async def acquire_service_lease(service_id: str, request: LeaseRequest) -> Dict:
                           if status_data else 'unknown')
 
         start_triggered = False
+        start_success = None
         if current_status not in ('running', 'starting'):
-            control.send_start_command(service_id)
+            start_success = control.send_start_command(service_id)
             start_triggered = True
-            logger.info(f"Start command triggered for {service_id} via lease acquisition")
+            if start_success:
+                logger.info(f"Start command triggered for {service_id} via lease acquisition")
+            else:
+                logger.error(f"Start command failed for {service_id} via lease acquisition")
+                control.revoke_service_lease(service_id)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to send start command for '{service_id}'"
+                )
 
         lease_ttl = control.get_lease_ttl(service_id)
         return {
@@ -452,42 +461,46 @@ async def get_service_lease_status(service_id: str) -> Dict:
 
 @app.post("/api/services/start-all")
 async def start_all_services() -> Dict:
-    """Start all services."""
+    """Start all services. Sets a persistent dashboard lease for each service."""
     results = {}
     for service_id in _get_services_info().keys():
+        control.set_service_lease(service_id, source="dashboard", ttl=None)
         results[service_id] = control.send_start_command(service_id)
     return {'success': True, 'message': f'Start commands sent for {len(results)} services', 'results': results}
 
 
 @app.post("/api/services/stop-all")
 async def stop_all_services() -> Dict:
-    """Stop all services."""
+    """Stop all services. Revokes leases so health monitor does not restart them."""
     results = {}
     for service_id in _get_services_info().keys():
+        control.revoke_service_lease(service_id)
         results[service_id] = control.send_stop_command(service_id)
     return {'success': True, 'message': f'Stop commands sent for {len(results)} services', 'results': results}
 
 
 @app.post("/api/exchange/{exchange_id}/start")
 async def start_exchange_services(exchange_id: str) -> Dict:
-    """Start all services for an exchange."""
+    """Start all services for an exchange. Sets a persistent dashboard lease for each."""
     matching = {sid: info for sid, info in _get_services_info().items() if info['exchange'] == exchange_id}
     if not matching:
         raise HTTPException(status_code=404, detail=f"Exchange '{exchange_id}' not found")
     results = {}
     for service_id in matching.keys():
+        control.set_service_lease(service_id, source="dashboard", ttl=None)
         results[service_id] = control.send_start_command(service_id)
     return {'success': True, 'results': results}
 
 
 @app.post("/api/exchange/{exchange_id}/stop")
 async def stop_exchange_services(exchange_id: str) -> Dict:
-    """Stop all services for an exchange."""
+    """Stop all services for an exchange. Revokes leases so health monitor does not restart them."""
     matching = {sid: info for sid, info in _get_services_info().items() if info['exchange'] == exchange_id}
     if not matching:
         raise HTTPException(status_code=404, detail=f"Exchange '{exchange_id}' not found")
     results = {}
     for service_id in matching.keys():
+        control.revoke_service_lease(service_id)
         results[service_id] = control.send_stop_command(service_id)
     return {'success': True, 'results': results}
 
