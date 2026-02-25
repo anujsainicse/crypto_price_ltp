@@ -381,6 +381,12 @@ class ServiceManager:
 
             service_info['task'] = None
             self.control.update_service_status(service_id, 'stopped')
+
+            # Revoke lease for on-demand services so they don't auto-resume
+            # on manager restart. Always-on services never have leases.
+            if service_id not in ALWAYS_ON_SERVICES:
+                self.control.revoke_service_lease(service_id)
+
             self.logger.info(f"✓ Service '{service_id}' stopped successfully")
             return True
 
@@ -431,16 +437,19 @@ class ServiceManager:
                         if status and status not in ['stopped', 'stopping', 'error']:
                             await self._handle_crashed_service(service_id)
 
-                    # Check lease expiry for running on-demand services
-                    elif (task and not task.done()
-                          and service_id not in ALWAYS_ON_SERVICES):
-                        lease = self.control.get_service_lease(service_id)
-                        if lease is None:
-                            self.logger.warning(
-                                f"Lease expired for on-demand service '{service_id}'. "
-                                f"Stopping service."
-                            )
-                            await self.stop_service(service_id)
+                    # Service is alive — refresh status heartbeat to prevent TTL expiry
+                    elif task and not task.done():
+                        self.control.update_service_status(service_id, 'running')
+
+                        # Check lease expiry for on-demand services
+                        if service_id not in ALWAYS_ON_SERVICES:
+                            lease = self.control.get_service_lease(service_id)
+                            if lease is None:
+                                self.logger.warning(
+                                    f"Lease expired for on-demand service '{service_id}'. "
+                                    f"Stopping service."
+                                )
+                                await self.stop_service(service_id)
 
             except Exception as e:
                 self.logger.error(f"Error in health monitor: {e}")
