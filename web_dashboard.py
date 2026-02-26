@@ -1,5 +1,6 @@
 """Web Dashboard for Crypto Price LTP System."""
 
+import asyncio
 import uvicorn
 import signal
 import subprocess
@@ -179,12 +180,8 @@ def _get_services_info() -> Dict:
 async def health_check():
     """Health check endpoint for deployment verification."""
     try:
-        # Check Redis connectivity
-        redis_status = control.is_redis_connected()
-
-        # Get service statuses
-        services = control.get_all_services_status()
-        active_services = sum(1 for s in services.values() if s.get('status') == 'running')
+        # Run sync Redis ping in thread pool to avoid blocking the event loop
+        redis_status = await asyncio.to_thread(control.is_redis_connected)
 
         return JSONResponse(
             status_code=200,
@@ -194,8 +191,6 @@ async def health_check():
                 "version_info": get_version_info(),
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "redis_connected": redis_status,
-                "active_services": active_services,
-                "total_services": len(services)
             }
         )
     except Exception as e:
