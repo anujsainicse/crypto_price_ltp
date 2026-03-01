@@ -451,7 +451,7 @@ def main():
 
     uvicorn.run(
         "web_dashboard:app",
-        host="::",
+        host="0.0.0.0",
         port=PORT,
         log_level="info",
         reload=False
