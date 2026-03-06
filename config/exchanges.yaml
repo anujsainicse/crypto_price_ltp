@@ -61,17 +61,17 @@ bybit:
       websocket_url: "wss://stream.bybit.com/v5/public/option"
       rest_api_url: "https://api.bybit.com/v5/market/instruments-info"
 
-      # Symbol selection (empty = auto-discover all available base coins)
-      base_coins: []
-      use_dynamic_base_coin_discovery: true
-      subscribe_all: false
-      max_symbols_per_asset: 100  # Top 100 by OI per underlying
-      max_active_symbols: 1000
+      # Symbol selection - subscribe to ALL BTC and ETH options
+      base_coins: ['BTC', 'ETH']
+      use_dynamic_base_coin_discovery: false
+      subscribe_all: true
+      max_symbols_per_asset: 5000   # Safety limit (won't filter with subscribe_all)
+      max_active_symbols: 10000     # Safety limit
 
       # Subscription behavior
       subscription_batch_size: 50
       subscription_batch_delay: 0.2
-      symbol_refresh_interval: 3600  # 1 hour
+      symbol_refresh_interval: 14400  # 4 hours fallback (primary is smart 08:05 UTC scheduler)
 
       # Connection settings
       reconnect_interval: 5

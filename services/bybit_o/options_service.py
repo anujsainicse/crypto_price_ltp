@@ -10,7 +10,7 @@ import time
 import aiohttp
 import websockets
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from core.base_service import BaseService
 
@@ -365,8 +365,8 @@ class BybitOptionsService(BaseService):
             # Subscribe to symbols
             await self._subscribe_to_channels()
 
-            # Start symbol refresh task
-            refresh_task = asyncio.create_task(self._periodic_symbol_refresh())
+            # Start smart symbol refresh task (aligned with 08:00 UTC settlement)
+            refresh_task = asyncio.create_task(self._smart_symbol_refresh())
 
             try:
                 # Listen for messages
@@ -420,11 +420,57 @@ class BybitOptionsService(BaseService):
 
         self.logger.info(f"Subscription complete: {total_symbols} options symbols")
 
-    async def _periodic_symbol_refresh(self):
-        """Periodically refresh symbols to handle expiring options."""
+    def _seconds_until_next_utc_time(self, hour: int = 8, minute: int = 5) -> float:
+        """Calculate seconds until the next occurrence of a target UTC time.
+
+        Args:
+            hour: Target hour in UTC (0-23)
+            minute: Target minute (0-59)
+
+        Returns:
+            Seconds until the next occurrence of the target time
+        """
+        now = datetime.now(timezone.utc)
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        return (target - now).total_seconds()
+
+    def _cleanup_expired_redis_keys(self, symbols: List[str]):
+        """Actively delete Redis keys for expired options symbols.
+
+        Args:
+            symbols: List of expired symbol strings to clean up
+        """
+        deleted = 0
+        for symbol in symbols:
+            # Delete ticker key
+            ticker_key = f"{self.redis_prefix}:{symbol}"
+            if self.redis_client.delete_key(ticker_key):
+                deleted += 1
+            # Delete orderbook key if enabled
+            if self.orderbook_enabled:
+                ob_key = f"{self.orderbook_redis_prefix}:{symbol}"
+                self.redis_client.delete_key(ob_key)
+        if deleted:
+            self.logger.info(f"Cleaned up {deleted} expired Redis keys")
+
+    async def _smart_symbol_refresh(self):
+        """Smart refresh aligned with Bybit's 08:00 UTC settlement schedule.
+
+        Refreshes at 08:05 UTC (5 min after settlement) and every symbol_refresh_interval
+        as a fallback, whichever comes first. Actively cleans up expired symbols from Redis.
+        """
         while self.running:
             try:
-                await asyncio.sleep(self.symbol_refresh_interval)
+                seconds_to_settlement = self._seconds_until_next_utc_time(8, 5)
+                sleep_time = min(seconds_to_settlement, self.symbol_refresh_interval)
+
+                self.logger.info(
+                    f"Next refresh in {sleep_time:.0f}s "
+                    f"(settlement refresh in {seconds_to_settlement:.0f}s)"
+                )
+                await asyncio.sleep(sleep_time)
 
                 if not self.running:
                     break
@@ -442,22 +488,27 @@ class BybitOptionsService(BaseService):
                 old_set = set(self.active_symbols)
                 new_set = set(new_symbols)
 
-                to_unsubscribe = old_set - new_set
-                to_subscribe = new_set - old_set
+                expired = old_set - new_set
+                added = new_set - old_set
 
-                if to_unsubscribe:
-                    self.logger.info(f"Unsubscribing from {len(to_unsubscribe)} expired symbols")
-                    await self._unsubscribe_symbols(list(to_unsubscribe))
-                    # Clean up in-memory orderbook state for expired symbols
-                    for symbol in to_unsubscribe:
+                if expired:
+                    self.logger.info(f"Unsubscribing from {len(expired)} expired symbols")
+                    await self._unsubscribe_symbols(list(expired))
+                    # Clean up in-memory orderbook state
+                    for symbol in expired:
                         self._orderbooks.pop(symbol, None)
+                    # Actively delete expired Redis keys
+                    self._cleanup_expired_redis_keys(list(expired))
 
-                if to_subscribe:
-                    self.logger.info(f"Subscribing to {len(to_subscribe)} new symbols")
-                    await self._subscribe_symbols(list(to_subscribe))
+                if added:
+                    self.logger.info(f"Subscribing to {len(added)} new symbols")
+                    await self._subscribe_symbols(list(added))
 
                 self.active_symbols = new_symbols
-                self.logger.info(f"Symbol refresh complete. Now tracking {len(self.active_symbols)} symbols")
+                self.logger.info(
+                    f"Symbol refresh complete: {len(expired)} expired, "
+                    f"{len(added)} new, {len(self.active_symbols)} total active"
+                )
 
             except asyncio.CancelledError:
                 break
