@@ -62,7 +62,6 @@ Click the **START** button on any service you want to run:
 - **Bybit Spot** - Real-time spot prices (BTC, ETH, SOL, BNB, DOGE)
 - **Bybit Spot Testnet** - Testnet spot prices (BTC, ETH, SOL, BNB, DOGE)
 - **Bybit Futures Orderbook** - Futures orderbook data (BTC, ETH, SOL, BNB, DOGE)
-- **Bybit Futures Testnet** - Testnet futures LTP + orderbook + trades + funding rate (BTC, ETH, SOL, BNB, DOGE)
 - **Bybit Options** - Options LTP + Greeks + IV (dynamic symbol discovery)
 - **Binance Spot** - Real-time spot prices via combined streams (BTC, ETH, SOL, BNB, DOGE)
 - **CoinDCX Spot** - Spot orderbook + trades (BTC, ETH, SOL, BNB, DOGE)
@@ -245,7 +244,6 @@ tail -f logs/web_dashboard.log
 **Individual Services:**
 ```bash
 tail -f logs/bybit-spot.log
-tail -f logs/bybit-futures-testnet.log
 tail -f logs/binance-spot.log
 tail -f logs/coindcx-futures-rest.log
 tail -f logs/delta-futures-ltp.log

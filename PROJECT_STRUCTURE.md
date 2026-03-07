@@ -80,7 +80,6 @@ price_ltp/
 │   ├── bybit-spot.log
 │   ├── bybit-spot-testnet.log
 │   ├── bybit-futures-orderbook.log
-│   ├── bybit-futures-testnet.log
 │   ├── bybit-options.log
 │   ├── binance-spot.log
 │   ├── coindcx-spot.log
@@ -146,7 +145,6 @@ Each exchange has its own directory with independent services.
 - `BybitSpotTestnetService` - Bybit testnet spot prices via WebSocket (LTP + OB + Trades)
 - `BybitFuturesOrderbookService` - Bybit futures orderbook via WebSocket
 - `BybitOptionsService` - Bybit options LTP + Greeks + IV via WebSocket
-- `BybitOptionsTestnetService` - Bybit options testnet LTP + Greeks + IV via WebSocket
 - `BinanceSpotService` - Binance spot prices via combined WebSocket streams (LTP + OB + Trades)
 - `CoinDCXSpotService` - CoinDCX spot orderbook + trades via Socket.IO
 - `CoinDCXFuturesRESTService` - CoinDCX futures via REST API (LTP + OB + Trades + Funding)
