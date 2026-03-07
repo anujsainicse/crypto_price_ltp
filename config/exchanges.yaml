@@ -402,38 +402,6 @@ bybit_futures_testnet:
       trades_limit: 50
       trades_redis_prefix: "bybit_futures_testnet_trades"
 
-bybit_options_testnet:
-  name: "Bybit Options Testnet"
-  enabled: true
-  services:
-    options:
-      enabled: true
-      auto_start: false
-
-      websocket_url: "wss://stream-testnet.bybit.com/v5/public/option"
-      rest_api_url: "https://testnet-api.bybit.com/v5/market/instruments-info"
-
-      base_coins: []
-      use_dynamic_base_coin_discovery: true
-      subscribe_all: false
-      max_symbols_per_asset: 100
-      max_active_symbols: 1000
-
-      subscription_batch_size: 50
-      subscription_batch_delay: 0.2
-      symbol_refresh_interval: 3600
-
-      reconnect_interval: 5
-      max_reconnect_attempts: 10
-
-      redis_prefix: "bybit_options_testnet"
-      redis_ttl: 60
-
-      # Optional orderbook (disabled by default - ticker data only)
-      orderbook_enabled: false
-      orderbook_depth: 25
-      orderbook_redis_prefix: "bybit_options_testnet_ob"
-
 binance:
   name: "Binance"
   enabled: true

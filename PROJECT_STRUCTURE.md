@@ -43,10 +43,6 @@ price_ltp/
 │   │   ├── __init__.py
 │   │   └── options_service.py       # Bybit options WebSocket (LTP + Greeks + IV)
 │   │
-│   ├── bybit_o_testnet/             # Bybit Options Testnet
-│   │   ├── __init__.py
-│   │   └── options_testnet_service.py  # Bybit options testnet WebSocket (LTP + Greeks + IV)
-│   │
 │   ├── binance_s/                   # Binance Spot
 │   │   ├── __init__.py
 │   │   └── spot_service.py          # Binance spot combined streams (LTP + OB + Trades)

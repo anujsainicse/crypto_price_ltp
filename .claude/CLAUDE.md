@@ -67,7 +67,6 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Bybit** | `bybit_futures_orderbook` | Futures | BTC, ETH, SOL, BNB, DOGE | Orderbook only |
 | **Bybit** | `bybit_futures_testnet` | Futures (Testnet) | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
-| **Bybit** | `bybit_options_testnet` | Options (Testnet) | All available (dynamic) | LTP + Greeks + IV |
 | **Binance** | `binance_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **Binance** | `binance_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Binance** | `binance_options` | Options | BTC, ETH (all strikes) | LTP + Greeks + IV |
@@ -441,7 +440,6 @@ python -m services.bybit_spot
 | Bybit Futures OB | `services/bybit_f/futures_orderbook_service.py` | Orderbook only |
 | Bybit Futures Testnet | `services/bybit_f_testnet/futures_testnet_service.py` | LTP + Orderbook + Trades + Funding Rate |
 | Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV (dynamic discovery) |
-| Bybit Options Testnet | `services/bybit_o_testnet/options_testnet_service.py` | LTP + Greeks + IV (dynamic discovery, testnet) |
 | Binance Spot | `services/binance_s/spot_service.py` | LTP + Orderbook (20 levels) + Trades |
 | Binance Futures | `services/binance_f/futures_service.py` | LTP + Orderbook (20 levels) + Trades + Funding Rate |
 | CoinDCX Spot | `services/coindcx_s/spot_service.py` | Orderbook + Trades (Socket.IO) |

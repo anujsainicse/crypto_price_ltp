@@ -22,7 +22,6 @@ from services.hyperliquid_p import HyperLiquidPerpetualService
 from services.bybit_spot_testnet import BybitSpotTestnetService
 from services.bybit_f import BybitFuturesOrderbookService
 from services.bybit_f_testnet import BybitFuturesTestnetService
-from services.bybit_o_testnet import BybitOptionsTestnetService
 from services.binance_s import BinanceSpotService
 from services.binance_o import BinanceOptionsService
 from services.binance_f import BinanceFuturesService
@@ -248,19 +247,6 @@ class ServiceManager:
                     'config': futures_config
                 }
                 self.logger.info("✓ Bybit Futures TestNet Service loaded")
-
-        elif exchange == 'bybit_options_testnet':
-            # Bybit Options TestNet Service
-            options_config = services_config.get('options', {})
-            if options_config.get('enabled', False):
-                service = BybitOptionsTestnetService(options_config)
-                self.services.append(service)
-                self.service_registry['bybit_options_testnet_options'] = {
-                    'service': service,
-                    'task': None,
-                    'config': options_config
-                }
-                self.logger.info("✓ Bybit Options TestNet Service loaded")
 
         elif exchange == 'binance':
             # Binance Spot Service
