@@ -136,13 +136,6 @@ def _get_services_info() -> Dict:
             'redis_prefix': 'bybit_spot_testnet',
             'data_types': ['ltp', 'orderbook', 'trades']
         },
-        'bybit_futures_testnet_orderbook': {
-            'name': 'Bybit Futures TestNet',
-            'exchange': 'bybit_futures_testnet',
-            'type': 'futures',
-            'redis_prefix': 'bybit_futures_testnet',
-            'data_types': ['ltp', 'orderbook', 'trades', 'funding']
-        },
         'binance_spot': {
             'name': 'Binance Spot',
             'exchange': 'binance',

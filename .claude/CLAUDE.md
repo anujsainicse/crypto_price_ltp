@@ -65,7 +65,6 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Bybit** | `bybit_spot` | Spot | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
 | **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
 | **Bybit** | `bybit_futures_orderbook` | Futures | BTC, ETH, SOL, BNB, DOGE | Orderbook only |
-| **Bybit** | `bybit_futures_testnet` | Futures (Testnet) | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
 | **Binance** | `binance_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **Binance** | `binance_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
@@ -78,7 +77,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
-**Total Active Services**: 16
+**Total Active Services**: 15
 
 **Notes**:
 - CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Use the `mid_price` field from the orderbook hash for current price.
@@ -102,7 +101,6 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 ```
 # LTP Keys (full exchange symbol as key suffix)
 bybit_spot:BTCUSDT
-bybit_futures_testnet:BTCUSDT
 binance_spot:BTCUSDT
 binance_futures:BTCUSDT
 coindcx_spot:BTC_USDT
@@ -119,7 +117,6 @@ delta_options:C-BTC-106000-241220
 
 # Orderbook Keys
 bybit_spot_ob:BTCUSDT
-bybit_futures_testnet_ob:BTCUSDT
 binance_spot_ob:BTCUSDT
 binance_futures_ob:BTCUSDT
 coindcx_spot_ob:BTC_USDT
@@ -132,7 +129,6 @@ hyperliquid_futures_ob:BTC
 
 # Trades Keys
 bybit_spot_trades:BTCUSDT
-bybit_futures_testnet_trades:BTCUSDT
 binance_spot_trades:BTCUSDT
 binance_futures_trades:BTCUSDT
 coindcx_spot_trades:BTC_USDT
@@ -438,7 +434,6 @@ python -m services.bybit_spot
 | Bybit Spot | `services/bybit_s/spot_service.py` | LTP + Orderbook + Trades |
 | Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP + Orderbook + Trades |
 | Bybit Futures OB | `services/bybit_f/futures_orderbook_service.py` | Orderbook only |
-| Bybit Futures Testnet | `services/bybit_f_testnet/futures_testnet_service.py` | LTP + Orderbook + Trades + Funding Rate |
 | Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV (dynamic discovery) |
 | Binance Spot | `services/binance_s/spot_service.py` | LTP + Orderbook (20 levels) + Trades |
 | Binance Futures | `services/binance_f/futures_service.py` | LTP + Orderbook (20 levels) + Trades + Funding Rate |

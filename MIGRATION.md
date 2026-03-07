@@ -18,7 +18,6 @@ This fixes key collisions when multiple quote pairs exist for the same base coin
 | Bybit Spot | `bybit_spot` | `bybit_spot:BTC` | `bybit_spot:BTCUSDT` |
 | Bybit Spot Testnet | `bybit_spot_testnet` | `bybit_spot_testnet:ETH` | `bybit_spot_testnet:ETHUSDT` |
 | Bybit Futures OB | `bybit_futures_ob` | `bybit_futures_ob:BTC` | `bybit_futures_ob:BTCUSDT` |
-| Bybit Futures Testnet | `bybit_futures_testnet` | `bybit_futures_testnet:BTC` | `bybit_futures_testnet:BTCUSDT` |
 | Binance Spot | `binance_spot` | `binance_spot:BTC` | `binance_spot:BTCUSDT` |
 | CoinDCX Spot | `coindcx_spot` | `coindcx_spot:BTC` | `coindcx_spot:BTC_USDT` |
 | CoinDCX Futures | `coindcx_futures` | `coindcx_futures:BTC` | `coindcx_futures:BTC_USDT` |

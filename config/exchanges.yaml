@@ -355,53 +355,6 @@ bybit_spot_testnet:
       trades_limit: 50
       trades_redis_prefix: "bybit_spot_testnet_trades"
 
-bybit_futures_testnet:
-  name: "Bybit Futures Testnet"
-  enabled: true
-  services:
-    futures_orderbook:
-      enabled: true
-      auto_start: false
-      websocket_url: "wss://stream-testnet.bybit.com/v5/public/linear"
-      symbols:
-        - "BTCUSDT"
-        - "ETHUSDT"
-        - "SOLUSDT"
-        - "BNBUSDT"
-        - "DOGEUSDT"
-        - "XRPUSDT"
-        - "ADAUSDT"
-        - "AVAXUSDT"
-        - "DOTUSDT"
-        - "MATICUSDT"
-        - "LINKUSDT"
-        - "ATOMUSDT"
-        - "LTCUSDT"
-        - "NEARUSDT"
-        - "SUIUSDT"
-        - "APTUSDT"
-        - "ARBUSDT"
-        - "UNIUSDT"
-        - "AAVEUSDT"
-        - "SHIBUSDT"
-        - "TRXUSDT"
-        - "FTMUSDT"
-      reconnect_interval: 5
-      max_reconnect_attempts: 10
-      redis_prefix: "bybit_futures_testnet"
-      redis_ttl: 60
-      quote_currencies:
-        - "USDT"
-        - "USDC"
-      # Orderbook configuration
-      orderbook_enabled: true
-      orderbook_depth: 50
-      orderbook_redis_prefix: "bybit_futures_testnet_ob"
-      # Trades configuration
-      trades_enabled: true
-      trades_limit: 50
-      trades_redis_prefix: "bybit_futures_testnet_trades"
-
 binance:
   name: "Binance"
   enabled: true
