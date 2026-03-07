@@ -204,81 +204,8 @@ class BybitOptionsService(BaseService):
         self.logger.info(f"Total options instruments fetched: {len(all_instruments)}")
         return all_instruments
 
-    def _parse_expiry_date(self, expiry_str: str) -> Optional[datetime]:
-        """Parse expiry date string from option symbol.
-
-        Format is DDMMMYY (e.g., '8MAR26', '13MAR26'). Single-digit days
-        have no leading zero.
-
-        Args:
-            expiry_str: Expiry date string from symbol
-
-        Returns:
-            datetime object or None if parsing fails
-        """
-        try:
-            return datetime.strptime(expiry_str, '%d%b%y').replace(tzinfo=timezone.utc)
-        except (ValueError, TypeError):
-            return None
-
-    def _filter_to_nearest_expiry(self, symbols: List[str]) -> List[str]:
-        """Filter symbols to only those matching the nearest unexpired expiry.
-
-        Bybit options settle at 08:00 UTC. After settlement, the next expiry
-        becomes "nearest."
-
-        Args:
-            symbols: List of symbol strings
-
-        Returns:
-            Filtered list containing only nearest-expiry symbols
-        """
-        now_utc = datetime.now(timezone.utc)
-
-        # Collect unique expiry dates from symbols
-        expiry_dates: Dict[str, datetime] = {}
-        symbol_expiries: Dict[str, str] = {}
-
-        for symbol in symbols:
-            parts = symbol.split('-')
-            if len(parts) >= 4:
-                expiry_str = parts[1]
-                symbol_expiries[symbol] = expiry_str
-                if expiry_str not in expiry_dates:
-                    dt = self._parse_expiry_date(expiry_str)
-                    if dt:
-                        expiry_dates[expiry_str] = dt
-
-        if not expiry_dates:
-            self.logger.warning("No valid expiry dates found in symbols, returning all")
-            return symbols
-
-        # Filter to expiries where settlement time (08:00 UTC) is still in the future
-        valid_expiries = {}
-        for expiry_str, expiry_dt in expiry_dates.items():
-            settlement_time = expiry_dt.replace(hour=8, minute=0, second=0, microsecond=0)
-            if settlement_time > now_utc:
-                valid_expiries[expiry_str] = settlement_time
-
-        if not valid_expiries:
-            self.logger.warning("All expiries have settled, returning all symbols")
-            return symbols
-
-        # Find nearest expiry
-        nearest_expiry = min(valid_expiries, key=lambda k: valid_expiries[k])
-        self.logger.info(f"Filtered to nearest expiry: {nearest_expiry}")
-
-        # Filter symbols to only those matching the nearest expiry
-        filtered = [s for s in symbols if symbol_expiries.get(s) == nearest_expiry]
-        self.logger.info(
-            f"Nearest expiry filter: {len(filtered)} symbols "
-            f"(from {len(symbols)} total, {len(valid_expiries)} valid expiries)"
-        )
-        return filtered
-
     def _filter_symbols(self, all_instruments: List[Dict]) -> List[str]:
-        """Filter symbols to top N by open interest per underlying asset,
-        then restrict to the nearest expiry date.
+        """Filter symbols to top N by open interest per underlying asset.
 
         Args:
             all_instruments: List of instrument data from REST API
@@ -314,7 +241,7 @@ class BybitOptionsService(BaseService):
                 selected.extend(top_symbols)
                 self.logger.info(f"Selected {len(top_symbols)} options for {base_coin} (top by OI)")
 
-        # Filter to nearest expiry only (keeps symbol count within WS limits)
+        # Filter to nearest expiry only (keeps symbol count manageable for single WS connection)
         selected = self._filter_to_nearest_expiry(selected)
 
         # Enforce global limit
@@ -326,6 +253,70 @@ class BybitOptionsService(BaseService):
 
         self.logger.info(f"Total options to subscribe: {len(selected)}")
         return selected
+
+    def _filter_to_nearest_expiry(self, symbols: List[str]) -> List[str]:
+        """Filter symbols to only the nearest expiry date.
+
+        Parses expiry from symbol format (e.g., BTC-8MAR26-67000-C or BTC-13MAR26-67000-C-USDT),
+        finds the nearest expiry that hasn't settled yet (settlement at 08:00 UTC), and returns
+        only symbols matching that expiry.
+
+        Args:
+            symbols: List of option symbol strings
+
+        Returns:
+            Filtered list containing only symbols with the nearest expiry
+        """
+        if not symbols:
+            return symbols
+
+        now_utc = datetime.now(timezone.utc)
+
+        # Extract unique expiry strings and map symbols to their expiry
+        expiry_to_symbols: Dict[str, List[str]] = {}
+        for symbol in symbols:
+            parts = symbol.split('-')
+            if len(parts) >= 4:
+                expiry_str = parts[1]
+                if expiry_str not in expiry_to_symbols:
+                    expiry_to_symbols[expiry_str] = []
+                expiry_to_symbols[expiry_str].append(symbol)
+
+        if not expiry_to_symbols:
+            self.logger.warning("No valid expiry dates found in symbols")
+            return symbols
+
+        # Parse expiry strings to datetime and find nearest unsettled expiry
+        valid_expiries: List[tuple] = []  # (expiry_str, settlement_datetime)
+        for expiry_str in expiry_to_symbols:
+            try:
+                # Format: DDMMMYY e.g., 8MAR26, 13MAR26
+                expiry_date = datetime.strptime(expiry_str, '%d%b%y').replace(tzinfo=timezone.utc)
+                # Settlement time is 08:00 UTC on expiry date
+                settlement_time = expiry_date.replace(hour=8, minute=0, second=0, microsecond=0)
+                # Only include expiries that haven't settled yet
+                if settlement_time > now_utc:
+                    valid_expiries.append((expiry_str, settlement_time))
+            except ValueError:
+                self.logger.debug(f"Could not parse expiry date: {expiry_str}")
+
+        if not valid_expiries:
+            self.logger.warning("All expiries have settled, returning all symbols")
+            return symbols
+
+        # Sort by settlement time and pick the nearest
+        valid_expiries.sort(key=lambda x: x[1])
+        nearest_expiry_str = valid_expiries[0][0]
+        nearest_settlement = valid_expiries[0][1]
+
+        filtered = expiry_to_symbols[nearest_expiry_str]
+        self.logger.info(
+            f"Filtered to nearest expiry: {nearest_expiry_str} "
+            f"(settlement: {nearest_settlement.strftime('%Y-%m-%d %H:%M UTC')}, "
+            f"{len(filtered)} symbols from {len(symbols)} total)"
+        )
+
+        return filtered
 
     def _parse_option_symbol(self, symbol: str) -> dict:
         """Parse Bybit option symbol into components.
