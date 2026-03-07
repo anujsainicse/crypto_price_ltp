@@ -56,7 +56,7 @@ async def index():
 # ==================== Service Metadata ====================
 
 def _get_services_info() -> Dict:
-    """Service metadata - single source of truth for all 15 services."""
+    """Service metadata - single source of truth for all 14 services."""
     return {
         'bybit_spot': {
             'name': 'Bybit Spot',

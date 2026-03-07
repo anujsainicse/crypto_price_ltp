@@ -77,7 +77,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
-**Total Active Services**: 15
+**Total Active Services**: 14
 
 **Notes**:
 - CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Use the `mid_price` field from the orderbook hash for current price.
@@ -421,7 +421,7 @@ python -m services.bybit_spot
 |------|---------|
 | `main.py` | Entry point, starts web dashboard |
 | `web_dashboard.py` | Flask dashboard for service control |
-| `manager.py` | Service lifecycle management (registers all 16 services) |
+| `manager.py` | Service lifecycle management (registers all 14 services) |
 | `core/redis_client.py` | Redis connection + orderbook/trades storage methods |
 | `core/base_service.py` | Abstract base class for all services |
 | `config/settings.py` | Global settings (Redis, logging) |
