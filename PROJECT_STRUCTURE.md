@@ -35,17 +35,9 @@ price_ltp/
 │   │   ├── __init__.py
 │   │   └── futures_orderbook_service.py  # Bybit futures WebSocket (Orderbook only)
 │   │
-│   ├── bybit_f_testnet/             # Bybit Futures Testnet
-│   │   ├── __init__.py
-│   │   └── futures_testnet_service.py  # Bybit futures testnet WebSocket (LTP + OB + Trades + Funding)
-│   │
 │   ├── bybit_o/                     # Bybit Options
 │   │   ├── __init__.py
 │   │   └── options_service.py       # Bybit options WebSocket (LTP + Greeks + IV)
-│   │
-│   ├── bybit_o_testnet/             # Bybit Options Testnet
-│   │   ├── __init__.py
-│   │   └── options_testnet_service.py  # Bybit options testnet WebSocket (LTP + Greeks + IV)
 │   │
 │   ├── binance_s/                   # Binance Spot
 │   │   ├── __init__.py
@@ -88,7 +80,6 @@ price_ltp/
 │   ├── bybit-spot.log
 │   ├── bybit-spot-testnet.log
 │   ├── bybit-futures-orderbook.log
-│   ├── bybit-futures-testnet.log
 │   ├── bybit-options.log
 │   ├── binance-spot.log
 │   ├── coindcx-spot.log
@@ -153,9 +144,7 @@ Each exchange has its own directory with independent services.
 - `BybitSpotService` - Bybit spot prices via WebSocket (LTP + OB + Trades)
 - `BybitSpotTestnetService` - Bybit testnet spot prices via WebSocket (LTP + OB + Trades)
 - `BybitFuturesOrderbookService` - Bybit futures orderbook via WebSocket
-- `BybitFuturesTestnetService` - Bybit futures testnet via WebSocket (LTP + OB + Trades + Funding Rate)
 - `BybitOptionsService` - Bybit options LTP + Greeks + IV via WebSocket
-- `BybitOptionsTestnetService` - Bybit options testnet LTP + Greeks + IV via WebSocket
 - `BinanceSpotService` - Binance spot prices via combined WebSocket streams (LTP + OB + Trades)
 - `CoinDCXSpotService` - CoinDCX spot orderbook + trades via Socket.IO
 - `CoinDCXFuturesRESTService` - CoinDCX futures via REST API (LTP + OB + Trades + Funding)

@@ -56,7 +56,7 @@ async def index():
 # ==================== Service Metadata ====================
 
 def _get_services_info() -> Dict:
-    """Service metadata - single source of truth for all 13 services."""
+    """Service metadata - single source of truth for all 14 services."""
     return {
         'bybit_spot': {
             'name': 'Bybit Spot',
@@ -136,13 +136,6 @@ def _get_services_info() -> Dict:
             'redis_prefix': 'bybit_spot_testnet',
             'data_types': ['ltp', 'orderbook', 'trades']
         },
-        'bybit_futures_testnet_orderbook': {
-            'name': 'Bybit Futures TestNet',
-            'exchange': 'bybit_futures_testnet',
-            'type': 'futures',
-            'redis_prefix': 'bybit_futures_testnet',
-            'data_types': ['ltp', 'orderbook', 'trades', 'funding']
-        },
         'binance_spot': {
             'name': 'Binance Spot',
             'exchange': 'binance',
@@ -156,13 +149,6 @@ def _get_services_info() -> Dict:
             'type': 'futures',
             'redis_prefix': 'binance_futures',
             'data_types': ['ltp', 'orderbook', 'trades', 'funding']
-        },
-        'bybit_options_testnet_options': {
-            'name': 'Bybit Options TestNet',
-            'exchange': 'bybit_options_testnet',
-            'type': 'options',
-            'redis_prefix': 'bybit_options_testnet',
-            'data_types': ['ltp']
         },
         'binance_options': {
             'name': 'Binance Options',

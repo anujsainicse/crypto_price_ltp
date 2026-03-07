@@ -57,7 +57,6 @@ class TestAllServicesHaveGetRedisSymbol(unittest.TestCase):
         'bybit_s/spot_service.py',
         'bybit_spot_testnet/spot_testnet_service.py',
         'bybit_f/futures_orderbook_service.py',
-        'bybit_f_testnet/futures_testnet_service.py',
         'binance_s/spot_service.py',
         'delta_s/spot_service.py',
         'delta_f/futures_ltp_service.py',
@@ -106,11 +105,6 @@ class TestPassthroughServices(unittest.TestCase):
     def test_bybit_futures_orderbook(self):
         from services.bybit_f.futures_orderbook_service import BybitFuturesOrderbookService
         svc = _make_service(BybitFuturesOrderbookService, self._make_config())
-        self.assertEqual(svc._get_redis_symbol('BTCUSDT'), 'BTCUSDT')
-
-    def test_bybit_futures_testnet(self):
-        from services.bybit_f_testnet.futures_testnet_service import BybitFuturesTestnetService
-        svc = _make_service(BybitFuturesTestnetService, self._make_config())
         self.assertEqual(svc._get_redis_symbol('BTCUSDT'), 'BTCUSDT')
 
     def test_binance_spot(self):

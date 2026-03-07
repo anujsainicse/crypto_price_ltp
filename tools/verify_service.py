@@ -11,7 +11,6 @@ Usage:
 
 Examples:
     python scripts/verify_service.py binance_spot
-    python scripts/verify_service.py bybit_futures_testnet --count 5
     python scripts/verify_service.py bybit_spot --timeout 20
     python scripts/verify_service.py --list
 """
@@ -54,18 +53,6 @@ SERVICE_REGISTRY = {
         'class': 'BybitFuturesOrderbookService',
         'exchange': 'bybit',
         'service_key': 'futures_orderbook',
-    },
-    'bybit_futures_testnet': {
-        'module': 'services.bybit_f_testnet',
-        'class': 'BybitFuturesTestnetService',
-        'exchange': 'bybit_futures_testnet',
-        'service_key': 'futures_orderbook',
-    },
-    'bybit_options_testnet': {
-        'module': 'services.bybit_o_testnet',
-        'class': 'BybitOptionsTestnetService',
-        'exchange': 'bybit_options_testnet',
-        'service_key': 'options',
     },
     'bybit_options': {
         'module': 'services.bybit_o',

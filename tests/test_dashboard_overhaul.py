@@ -10,11 +10,11 @@ def read_file(relative_path):
         return f.read()
 
 class TestDataCountsFix(unittest.TestCase):
-    def test_all_13_prefixes_present(self):
+    def test_all_12_prefixes_present(self):
         source = read_file('core/control_interface.py')
         required = [
             'bybit_spot', 'bybit_futures_ob', 'bybit_options',
-            'bybit_spot_testnet', 'bybit_futures_testnet',
+            'bybit_spot_testnet',
             'coindcx_spot', 'coindcx_futures',
             'delta_spot', 'delta_futures', 'delta_options',
             'hyperliquid_spot', 'hyperliquid_futures',

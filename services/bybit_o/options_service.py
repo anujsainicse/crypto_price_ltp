@@ -241,6 +241,9 @@ class BybitOptionsService(BaseService):
                 selected.extend(top_symbols)
                 self.logger.info(f"Selected {len(top_symbols)} options for {base_coin} (top by OI)")
 
+        # Filter to nearest expiry only (keeps symbol count manageable for single WS connection)
+        selected = self._filter_to_nearest_expiry(selected)
+
         # Enforce global limit
         if len(selected) > self.max_active_symbols:
             self.logger.warning(
@@ -250,6 +253,70 @@ class BybitOptionsService(BaseService):
 
         self.logger.info(f"Total options to subscribe: {len(selected)}")
         return selected
+
+    def _filter_to_nearest_expiry(self, symbols: List[str]) -> List[str]:
+        """Filter symbols to only the nearest expiry date.
+
+        Parses expiry from symbol format (e.g., BTC-8MAR26-67000-C or BTC-13MAR26-67000-C-USDT),
+        finds the nearest expiry that hasn't settled yet (settlement at 08:00 UTC), and returns
+        only symbols matching that expiry.
+
+        Args:
+            symbols: List of option symbol strings
+
+        Returns:
+            Filtered list containing only symbols with the nearest expiry
+        """
+        if not symbols:
+            return symbols
+
+        now_utc = datetime.now(timezone.utc)
+
+        # Extract unique expiry strings and map symbols to their expiry
+        expiry_to_symbols: Dict[str, List[str]] = {}
+        for symbol in symbols:
+            parts = symbol.split('-')
+            if len(parts) >= 4:
+                expiry_str = parts[1]
+                if expiry_str not in expiry_to_symbols:
+                    expiry_to_symbols[expiry_str] = []
+                expiry_to_symbols[expiry_str].append(symbol)
+
+        if not expiry_to_symbols:
+            self.logger.warning("No valid expiry dates found in symbols")
+            return symbols
+
+        # Parse expiry strings to datetime and find nearest unsettled expiry
+        valid_expiries: List[tuple] = []  # (expiry_str, settlement_datetime)
+        for expiry_str in expiry_to_symbols:
+            try:
+                # Format: DDMMMYY e.g., 8MAR26, 13MAR26
+                expiry_date = datetime.strptime(expiry_str, '%d%b%y').replace(tzinfo=timezone.utc)
+                # Settlement time is 08:00 UTC on expiry date
+                settlement_time = expiry_date.replace(hour=8, minute=0, second=0, microsecond=0)
+                # Only include expiries that haven't settled yet
+                if settlement_time > now_utc:
+                    valid_expiries.append((expiry_str, settlement_time))
+            except ValueError:
+                self.logger.debug(f"Could not parse expiry date: {expiry_str}")
+
+        if not valid_expiries:
+            self.logger.warning("All expiries have settled, returning all symbols")
+            return symbols
+
+        # Sort by settlement time and pick the nearest
+        valid_expiries.sort(key=lambda x: x[1])
+        nearest_expiry_str = valid_expiries[0][0]
+        nearest_settlement = valid_expiries[0][1]
+
+        filtered = expiry_to_symbols[nearest_expiry_str]
+        self.logger.info(
+            f"Filtered to nearest expiry: {nearest_expiry_str} "
+            f"(settlement: {nearest_settlement.strftime('%Y-%m-%d %H:%M UTC')}, "
+            f"{len(filtered)} symbols from {len(symbols)} total)"
+        )
+
+        return filtered
 
     def _parse_option_symbol(self, symbol: str) -> dict:
         """Parse Bybit option symbol into components.
@@ -632,17 +699,17 @@ class BybitOptionsService(BaseService):
 
             additional_data = {
                 'mark_price': str(ticker.get('markPrice', '0')),
-                'bid': str(ticker.get('bid1Price', '0')),
-                'ask': str(ticker.get('ask1Price', '0')),
-                'bid_size': str(ticker.get('bid1Size', '0')),
-                'ask_size': str(ticker.get('ask1Size', '0')),
+                'bid': str(ticker.get('bidPrice', '0')),
+                'ask': str(ticker.get('askPrice', '0')),
+                'bid_size': str(ticker.get('bidSize', '0')),
+                'ask_size': str(ticker.get('askSize', '0')),
                 # Greeks
                 'delta': str(ticker.get('delta', '0')),
                 'gamma': str(ticker.get('gamma', '0')),
                 'vega': str(ticker.get('vega', '0')),
                 'theta': str(ticker.get('theta', '0')),
                 # Volatility & Interest
-                'iv': str(ticker.get('markIv', '0')),
+                'iv': str(ticker.get('markPriceIv', '0')),
                 'bid_iv': str(ticker.get('bidIv', '0')),
                 'ask_iv': str(ticker.get('askIv', '0')),
                 'open_interest': str(ticker.get('openInterest', '0')),
@@ -672,7 +739,7 @@ class BybitOptionsService(BaseService):
                 self.logger.debug(
                     f"[REDIS] Stored {symbol}: ${price_float:.4f} "
                     f"(Type: {option_info.get('type')}, Strike: {option_info.get('strike')}, "
-                    f"Delta: {ticker.get('delta', 'N/A')}, IV: {ticker.get('markIv', 'N/A')})"
+                    f"Delta: {ticker.get('delta', 'N/A')}, IV: {ticker.get('markPriceIv', 'N/A')})"
                 )
             else:
                 self.logger.warning(f"Failed to store {symbol} in Redis")

@@ -65,9 +65,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **Bybit** | `bybit_spot` | Spot | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
 | **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
 | **Bybit** | `bybit_futures_orderbook` | Futures | BTC, ETH, SOL, BNB, DOGE | Orderbook only |
-| **Bybit** | `bybit_futures_testnet` | Futures (Testnet) | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV |
-| **Bybit** | `bybit_options_testnet` | Options (Testnet) | All available (dynamic) | LTP + Greeks + IV |
 | **Binance** | `binance_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **Binance** | `binance_futures` | Futures | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades + Funding Rate |
 | **Binance** | `binance_options` | Options | BTC, ETH (all strikes) | LTP + Greeks + IV |
@@ -79,7 +77,7 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 | **HyperLiquid** | `hyperliquid_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 | **HyperLiquid** | `hyperliquid_futures` | Perpetual | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
 
-**Total Active Services**: 16
+**Total Active Services**: 14
 
 **Notes**:
 - CoinDCX Spot and Delta Spot do not have dedicated LTP ticker channels. Use the `mid_price` field from the orderbook hash for current price.
@@ -103,7 +101,6 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 ```
 # LTP Keys (full exchange symbol as key suffix)
 bybit_spot:BTCUSDT
-bybit_futures_testnet:BTCUSDT
 binance_spot:BTCUSDT
 binance_futures:BTCUSDT
 coindcx_spot:BTC_USDT
@@ -120,7 +117,6 @@ delta_options:C-BTC-106000-241220
 
 # Orderbook Keys
 bybit_spot_ob:BTCUSDT
-bybit_futures_testnet_ob:BTCUSDT
 binance_spot_ob:BTCUSDT
 binance_futures_ob:BTCUSDT
 coindcx_spot_ob:BTC_USDT
@@ -133,7 +129,6 @@ hyperliquid_futures_ob:BTC
 
 # Trades Keys
 bybit_spot_trades:BTCUSDT
-bybit_futures_testnet_trades:BTCUSDT
 binance_spot_trades:BTCUSDT
 binance_futures_trades:BTCUSDT
 coindcx_spot_trades:BTC_USDT
@@ -426,7 +421,7 @@ python -m services.bybit_spot
 |------|---------|
 | `main.py` | Entry point, starts web dashboard |
 | `web_dashboard.py` | Flask dashboard for service control |
-| `manager.py` | Service lifecycle management (registers all 16 services) |
+| `manager.py` | Service lifecycle management (registers all 14 services) |
 | `core/redis_client.py` | Redis connection + orderbook/trades storage methods |
 | `core/base_service.py` | Abstract base class for all services |
 | `config/settings.py` | Global settings (Redis, logging) |
@@ -439,9 +434,7 @@ python -m services.bybit_spot
 | Bybit Spot | `services/bybit_s/spot_service.py` | LTP + Orderbook + Trades |
 | Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP + Orderbook + Trades |
 | Bybit Futures OB | `services/bybit_f/futures_orderbook_service.py` | Orderbook only |
-| Bybit Futures Testnet | `services/bybit_f_testnet/futures_testnet_service.py` | LTP + Orderbook + Trades + Funding Rate |
 | Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV (dynamic discovery) |
-| Bybit Options Testnet | `services/bybit_o_testnet/options_testnet_service.py` | LTP + Greeks + IV (dynamic discovery, testnet) |
 | Binance Spot | `services/binance_s/spot_service.py` | LTP + Orderbook (20 levels) + Trades |
 | Binance Futures | `services/binance_f/futures_service.py` | LTP + Orderbook (20 levels) + Trades + Funding Rate |
 | CoinDCX Spot | `services/coindcx_s/spot_service.py` | Orderbook + Trades (Socket.IO) |
