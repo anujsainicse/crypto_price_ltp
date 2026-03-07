@@ -204,8 +204,81 @@ class BybitOptionsService(BaseService):
         self.logger.info(f"Total options instruments fetched: {len(all_instruments)}")
         return all_instruments
 
+    def _parse_expiry_date(self, expiry_str: str) -> Optional[datetime]:
+        """Parse expiry date string from option symbol.
+
+        Format is DDMMMYY (e.g., '8MAR26', '13MAR26'). Single-digit days
+        have no leading zero.
+
+        Args:
+            expiry_str: Expiry date string from symbol
+
+        Returns:
+            datetime object or None if parsing fails
+        """
+        try:
+            return datetime.strptime(expiry_str, '%d%b%y').replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return None
+
+    def _filter_to_nearest_expiry(self, symbols: List[str]) -> List[str]:
+        """Filter symbols to only those matching the nearest unexpired expiry.
+
+        Bybit options settle at 08:00 UTC. After settlement, the next expiry
+        becomes "nearest."
+
+        Args:
+            symbols: List of symbol strings
+
+        Returns:
+            Filtered list containing only nearest-expiry symbols
+        """
+        now_utc = datetime.now(timezone.utc)
+
+        # Collect unique expiry dates from symbols
+        expiry_dates: Dict[str, datetime] = {}
+        symbol_expiries: Dict[str, str] = {}
+
+        for symbol in symbols:
+            parts = symbol.split('-')
+            if len(parts) >= 4:
+                expiry_str = parts[1]
+                symbol_expiries[symbol] = expiry_str
+                if expiry_str not in expiry_dates:
+                    dt = self._parse_expiry_date(expiry_str)
+                    if dt:
+                        expiry_dates[expiry_str] = dt
+
+        if not expiry_dates:
+            self.logger.warning("No valid expiry dates found in symbols, returning all")
+            return symbols
+
+        # Filter to expiries where settlement time (08:00 UTC) is still in the future
+        valid_expiries = {}
+        for expiry_str, expiry_dt in expiry_dates.items():
+            settlement_time = expiry_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+            if settlement_time > now_utc:
+                valid_expiries[expiry_str] = settlement_time
+
+        if not valid_expiries:
+            self.logger.warning("All expiries have settled, returning all symbols")
+            return symbols
+
+        # Find nearest expiry
+        nearest_expiry = min(valid_expiries, key=lambda k: valid_expiries[k])
+        self.logger.info(f"Filtered to nearest expiry: {nearest_expiry}")
+
+        # Filter symbols to only those matching the nearest expiry
+        filtered = [s for s in symbols if symbol_expiries.get(s) == nearest_expiry]
+        self.logger.info(
+            f"Nearest expiry filter: {len(filtered)} symbols "
+            f"(from {len(symbols)} total, {len(valid_expiries)} valid expiries)"
+        )
+        return filtered
+
     def _filter_symbols(self, all_instruments: List[Dict]) -> List[str]:
-        """Filter symbols to top N by open interest per underlying asset.
+        """Filter symbols to top N by open interest per underlying asset,
+        then restrict to the nearest expiry date.
 
         Args:
             all_instruments: List of instrument data from REST API
@@ -240,6 +313,9 @@ class BybitOptionsService(BaseService):
                 top_symbols = [i['symbol'] for i in instruments[:self.max_symbols_per_asset] if i.get('symbol')]
                 selected.extend(top_symbols)
                 self.logger.info(f"Selected {len(top_symbols)} options for {base_coin} (top by OI)")
+
+        # Filter to nearest expiry only (keeps symbol count within WS limits)
+        selected = self._filter_to_nearest_expiry(selected)
 
         # Enforce global limit
         if len(selected) > self.max_active_symbols:
@@ -632,17 +708,17 @@ class BybitOptionsService(BaseService):
 
             additional_data = {
                 'mark_price': str(ticker.get('markPrice', '0')),
-                'bid': str(ticker.get('bid1Price', '0')),
-                'ask': str(ticker.get('ask1Price', '0')),
-                'bid_size': str(ticker.get('bid1Size', '0')),
-                'ask_size': str(ticker.get('ask1Size', '0')),
+                'bid': str(ticker.get('bidPrice', '0')),
+                'ask': str(ticker.get('askPrice', '0')),
+                'bid_size': str(ticker.get('bidSize', '0')),
+                'ask_size': str(ticker.get('askSize', '0')),
                 # Greeks
                 'delta': str(ticker.get('delta', '0')),
                 'gamma': str(ticker.get('gamma', '0')),
                 'vega': str(ticker.get('vega', '0')),
                 'theta': str(ticker.get('theta', '0')),
                 # Volatility & Interest
-                'iv': str(ticker.get('markIv', '0')),
+                'iv': str(ticker.get('markPriceIv', '0')),
                 'bid_iv': str(ticker.get('bidIv', '0')),
                 'ask_iv': str(ticker.get('askIv', '0')),
                 'open_interest': str(ticker.get('openInterest', '0')),
@@ -672,7 +748,7 @@ class BybitOptionsService(BaseService):
                 self.logger.debug(
                     f"[REDIS] Stored {symbol}: ${price_float:.4f} "
                     f"(Type: {option_info.get('type')}, Strike: {option_info.get('strike')}, "
-                    f"Delta: {ticker.get('delta', 'N/A')}, IV: {ticker.get('markIv', 'N/A')})"
+                    f"Delta: {ticker.get('delta', 'N/A')}, IV: {ticker.get('markPriceIv', 'N/A')})"
                 )
             else:
                 self.logger.warning(f"Failed to store {symbol} in Redis")
