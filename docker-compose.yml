@@ -1,45 +1,6 @@
 version: '3.8'
 
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: crypto_ltp_redis
-    ports:
-      # Bind to localhost only for security - bot on same VPS connects via localhost
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redis_data:/data
-    # Add persistence settings (no password for local development)
-    command: >
-      redis-server
-      --appendonly yes
-      --save 900 1
-      --save 300 10
-      --save 60 10000
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - crypto_network
-    restart: unless-stopped
-    # Resource limits for production stability
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    # Log rotation to prevent disk space issues
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
   app:
     build:
       context: .
@@ -49,7 +10,7 @@ services:
       # Bind to localhost only - access via SSH tunnel or from VPS locally
       - "127.0.0.1:8080:8080"
     environment:
-      - REDIS_HOST=redis
+      - REDIS_HOST=host.docker.internal
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_DB=${REDIS_DB:-0}
@@ -63,9 +24,6 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
       - crypto_network
     restart: unless-stopped
@@ -84,10 +42,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-
-volumes:
-  redis_data:
-    driver: local
 
 networks:
   crypto_network:
