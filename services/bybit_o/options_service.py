@@ -76,6 +76,7 @@ class BybitOptionsService(BaseService):
         # State management
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.active_symbols: List[str] = []
+        self.active_symbols_set: set = set()
         self.discovered_base_coins: List[str] = []
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
 
@@ -364,6 +365,24 @@ class BybitOptionsService(BaseService):
         self.logger.error("Failed to discover options symbols")
         return []
 
+    def _cleanup_stale_redis_keys_on_startup(self):
+        """Delete Redis keys from previous run that don't belong to current active symbols."""
+        pattern = f"{self.redis_prefix}:*"
+        all_keys = self.redis_client.get_all_keys(pattern)
+        active_keys = {f"{self.redis_prefix}:{s}" for s in self.active_symbols}
+        stale = [k for k in all_keys if k not in active_keys]
+        if self.orderbook_enabled:
+            ob_pattern = f"{self.orderbook_redis_prefix}:*"
+            ob_all_keys = self.redis_client.get_all_keys(ob_pattern)
+            ob_active_keys = {f"{self.orderbook_redis_prefix}:{s}" for s in self.active_symbols}
+            stale.extend([k for k in ob_all_keys if k not in ob_active_keys])
+        deleted = 0
+        for key in stale:
+            if self.redis_client.delete_key(key):
+                deleted += 1
+        if deleted:
+            self.logger.info(f"Startup cleanup: deleted {deleted} stale Redis keys")
+
     async def start(self):
         """Start the Bybit options streaming service."""
         if not self.is_enabled():
@@ -377,6 +396,9 @@ class BybitOptionsService(BaseService):
             self.logger.error("No valid options symbols to subscribe to")
             return
 
+        self.active_symbols_set = set(self.active_symbols)
+        self._cleanup_stale_redis_keys_on_startup()
+
         self.running = True
         self.logger.info(f"Starting WebSocket connection to {self.ws_url}")
         self.logger.info(f"Monitoring {len(self.active_symbols)} options")
@@ -386,28 +408,36 @@ class BybitOptionsService(BaseService):
             self.logger.info(f"First 5 symbols: {', '.join(self.active_symbols[:5])}...")
 
         reconnect_attempts = 0
+        refresh_task = asyncio.create_task(self._smart_symbol_refresh())
 
-        while self.running:
+        try:
+            while self.running:
+                try:
+                    connection_start_time = time.time()
+                    await self._connect_and_stream()
+                    reconnect_attempts = 0  # Reset on successful connection
+                except Exception as e:
+                    # Reset attempts if connection was stable for >30s
+                    connection_duration = time.time() - connection_start_time
+                    if connection_duration > 30:
+                        reconnect_attempts = 1
+                    else:
+                        reconnect_attempts += 1
+
+                    # Clear stale WebSocket reference
+                    self.websocket = None
+                    self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
+
+                    # Exponential backoff with 60s cap (never give up)
+                    delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
+                    self.logger.info(f"Reconnecting in {delay} seconds...")
+                    await asyncio.sleep(delay)
+        finally:
+            refresh_task.cancel()
             try:
-                connection_start_time = time.time()
-                await self._connect_and_stream()
-                reconnect_attempts = 0  # Reset on successful connection
-            except Exception as e:
-                # Reset attempts if connection was stable for >30s
-                connection_duration = time.time() - connection_start_time
-                if connection_duration > 30:
-                    reconnect_attempts = 1
-                else:
-                    reconnect_attempts += 1
-
-                # Clear stale WebSocket reference
-                self.websocket = None
-                self.logger.warning(f"Connection error (attempt {reconnect_attempts}): {e}")
-
-                # Exponential backoff with 60s cap (never give up)
-                delay = self.backoff_delays[min(reconnect_attempts - 1, len(self.backoff_delays) - 1)]
-                self.logger.info(f"Reconnecting in {delay} seconds...")
-                await asyncio.sleep(delay)
+                await refresh_task
+            except asyncio.CancelledError:
+                pass
 
     async def _connect_and_stream(self):
         """Connect to WebSocket and stream options data."""
@@ -432,25 +462,15 @@ class BybitOptionsService(BaseService):
             # Subscribe to symbols
             await self._subscribe_to_channels()
 
-            # Start smart symbol refresh task (aligned with 08:00 UTC settlement)
-            refresh_task = asyncio.create_task(self._smart_symbol_refresh())
+            # Listen for messages
+            async for message in websocket:
+                if not self.running:
+                    break
 
-            try:
-                # Listen for messages
-                async for message in websocket:
-                    if not self.running:
-                        break
-
-                    try:
-                        await self._handle_message(message)
-                    except Exception as e:
-                        self.logger.error(f"Error handling message: {e}")
-            finally:
-                refresh_task.cancel()
                 try:
-                    await refresh_task
-                except asyncio.CancelledError:
-                    pass
+                    await self._handle_message(message)
+                except Exception as e:
+                    self.logger.error(f"Error handling message: {e}")
 
     async def _subscribe_to_channels(self):
         """Subscribe to tickers (and optionally orderbooks) in batches."""
@@ -572,6 +592,23 @@ class BybitOptionsService(BaseService):
                     await self._subscribe_symbols(list(added))
 
                 self.active_symbols = new_symbols
+                self.active_symbols_set = set(self.active_symbols)
+
+                # Belt-and-suspenders: delete any orphaned Redis keys not in active set
+                pattern = f"{self.redis_prefix}:*"
+                all_keys = self.redis_client.get_all_keys(pattern)
+                active_keys = {f"{self.redis_prefix}:{s}" for s in self.active_symbols}
+                orphaned = [k for k in all_keys if k not in active_keys]
+                if self.orderbook_enabled:
+                    ob_pattern = f"{self.orderbook_redis_prefix}:*"
+                    ob_all_keys = self.redis_client.get_all_keys(ob_pattern)
+                    ob_active_keys = {f"{self.orderbook_redis_prefix}:{s}" for s in self.active_symbols}
+                    orphaned.extend([k for k in ob_all_keys if k not in ob_active_keys])
+                if orphaned:
+                    for key in orphaned:
+                        self.redis_client.delete_key(key)
+                    self.logger.info(f"Refresh cleanup: deleted {len(orphaned)} orphaned Redis keys")
+
                 self.logger.info(
                     f"Symbol refresh complete: {len(expired)} expired, "
                     f"{len(added)} new, {len(self.active_symbols)} total active"
@@ -676,6 +713,9 @@ class BybitOptionsService(BaseService):
             if not symbol:
                 return
 
+            if symbol not in self.active_symbols_set:
+                return
+
             # Get price (use lastPrice, fall back to markPrice)
             price = ticker.get('lastPrice') or ticker.get('markPrice')
             if not price:
@@ -765,6 +805,9 @@ class BybitOptionsService(BaseService):
 
             symbol = ob_data.get('s', '')
             if not symbol:
+                return
+
+            if symbol not in self.active_symbols_set:
                 return
 
             if update_type == 'snapshot':
