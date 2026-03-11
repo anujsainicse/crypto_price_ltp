@@ -371,6 +371,11 @@ class BybitOptionsService(BaseService):
         all_keys = self.redis_client.get_all_keys(pattern)
         active_keys = {f"{self.redis_prefix}:{s}" for s in self.active_symbols}
         stale = [k for k in all_keys if k not in active_keys]
+        if self.orderbook_enabled:
+            ob_pattern = f"{self.orderbook_redis_prefix}:*"
+            ob_all_keys = self.redis_client.get_all_keys(ob_pattern)
+            ob_active_keys = {f"{self.orderbook_redis_prefix}:{s}" for s in self.active_symbols}
+            stale.extend([k for k in ob_all_keys if k not in ob_active_keys])
         deleted = 0
         for key in stale:
             if self.redis_client.delete_key(key):
@@ -594,6 +599,11 @@ class BybitOptionsService(BaseService):
                 all_keys = self.redis_client.get_all_keys(pattern)
                 active_keys = {f"{self.redis_prefix}:{s}" for s in self.active_symbols}
                 orphaned = [k for k in all_keys if k not in active_keys]
+                if self.orderbook_enabled:
+                    ob_pattern = f"{self.orderbook_redis_prefix}:*"
+                    ob_all_keys = self.redis_client.get_all_keys(ob_pattern)
+                    ob_active_keys = {f"{self.orderbook_redis_prefix}:{s}" for s in self.active_symbols}
+                    orphaned.extend([k for k in ob_all_keys if k not in ob_active_keys])
                 if orphaned:
                     for key in orphaned:
                         self.redis_client.delete_key(key)
