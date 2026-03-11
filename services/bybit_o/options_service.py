@@ -369,7 +369,7 @@ class BybitOptionsService(BaseService):
         """Delete Redis keys from previous run that don't belong to current active symbols."""
         pattern = f"{self.redis_prefix}:*"
         all_keys = self.redis_client.get_all_keys(pattern)
-        active_keys = {f"{self.redis_prefix}:{s}".encode() for s in self.active_symbols}
+        active_keys = {f"{self.redis_prefix}:{s}" for s in self.active_symbols}
         stale = [k for k in all_keys if k not in active_keys]
         deleted = 0
         for key in stale:
@@ -592,7 +592,7 @@ class BybitOptionsService(BaseService):
                 # Belt-and-suspenders: delete any orphaned Redis keys not in active set
                 pattern = f"{self.redis_prefix}:*"
                 all_keys = self.redis_client.get_all_keys(pattern)
-                active_keys = {f"{self.redis_prefix}:{s}".encode() for s in self.active_symbols}
+                active_keys = {f"{self.redis_prefix}:{s}" for s in self.active_symbols}
                 orphaned = [k for k in all_keys if k not in active_keys]
                 if orphaned:
                     for key in orphaned:
