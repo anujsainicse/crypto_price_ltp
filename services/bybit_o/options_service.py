@@ -578,6 +578,12 @@ class BybitOptionsService(BaseService):
                 expired = old_set - new_set
                 added = new_set - old_set
 
+                # Update guard FIRST so incoming WS messages for expired symbols are
+                # rejected immediately — prevents race condition where Bybit sends
+                # stale tickers after cleanup and re-writes deleted Redis keys
+                self.active_symbols = new_symbols
+                self.active_symbols_set = new_set
+
                 if expired:
                     self.logger.info(f"Unsubscribing from {len(expired)} expired symbols")
                     await self._unsubscribe_symbols(list(expired))
@@ -590,9 +596,6 @@ class BybitOptionsService(BaseService):
                 if added:
                     self.logger.info(f"Subscribing to {len(added)} new symbols")
                     await self._subscribe_symbols(list(added))
-
-                self.active_symbols = new_symbols
-                self.active_symbols_set = set(self.active_symbols)
 
                 # Belt-and-suspenders: delete any orphaned Redis keys not in active set
                 pattern = f"{self.redis_prefix}:*"
