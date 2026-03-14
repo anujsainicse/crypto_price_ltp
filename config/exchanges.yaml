@@ -81,10 +81,15 @@ bybit:
       redis_prefix: "bybit_options"
       redis_ttl: 60
 
-      # Optional orderbook (disabled by default - ticker data only)
-      orderbook_enabled: false
+      # Optional orderbook
+      orderbook_enabled: true
       orderbook_depth: 25
       orderbook_redis_prefix: "bybit_options_ob"
+
+      # Trades configuration
+      trades_enabled: true
+      trades_limit: 50
+      trades_redis_prefix: "bybit_options_trades"
 
 coindcx:
   name: "CoinDCX"

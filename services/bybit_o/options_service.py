@@ -9,6 +9,7 @@ import math
 import time
 import aiohttp
 import websockets
+from collections import deque
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 
@@ -73,12 +74,18 @@ class BybitOptionsService(BaseService):
         self.orderbook_depth = config.get('orderbook_depth', 25)
         self.orderbook_redis_prefix = config.get('orderbook_redis_prefix', 'bybit_options_ob')
 
+        # Trades configuration
+        self.trades_enabled = config.get('trades_enabled', False)
+        self.trades_limit = config.get('trades_limit', 50)
+        self.trades_redis_prefix = config.get('trades_redis_prefix', 'bybit_options_trades')
+
         # State management
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.active_symbols: List[str] = []
         self.active_symbols_set: set = set()
         self.discovered_base_coins: List[str] = []
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
+        self._trades: Dict[str, deque] = {}
 
         # Exponential backoff delays: 5s → 10s → 20s → 40s → 60s (max)
         self.backoff_delays = [5, 10, 20, 40, 60]
@@ -376,6 +383,11 @@ class BybitOptionsService(BaseService):
             ob_all_keys = self.redis_client.get_all_keys(ob_pattern)
             ob_active_keys = {f"{self.orderbook_redis_prefix}:{s}" for s in self.active_symbols}
             stale.extend([k for k in ob_all_keys if k not in ob_active_keys])
+        if self.trades_enabled:
+            trades_pattern = f"{self.trades_redis_prefix}:*"
+            trades_all_keys = self.redis_client.get_all_keys(trades_pattern)
+            trades_active_keys = {f"{self.trades_redis_prefix}:{s}" for s in self.active_symbols}
+            stale.extend([k for k in trades_all_keys if k not in trades_active_keys])
         deleted = 0
         for key in stale:
             if self.redis_client.delete_key(key):
@@ -443,12 +455,17 @@ class BybitOptionsService(BaseService):
         """Connect to WebSocket and stream options data."""
         # Clear stale state on reconnection
         self._orderbooks.clear()
+        self._trades.clear()
 
         # Clear stale Redis keys for options that may have crossed books
         # This prevents serving stale data after reconnection
         if self.orderbook_enabled:
             for symbol in self.active_symbols:
                 redis_key = f"{self.orderbook_redis_prefix}:{symbol}"
+                self.redis_client.delete_key(redis_key)
+        if self.trades_enabled:
+            for symbol in self.active_symbols:
+                redis_key = f"{self.trades_redis_prefix}:{symbol}"
                 self.redis_client.delete_key(redis_key)
 
         async with websockets.connect(
@@ -505,6 +522,17 @@ class BybitOptionsService(BaseService):
             if i + batch_size < total_symbols:
                 await asyncio.sleep(self.subscription_batch_delay)
 
+        # Subscribe to trades (per base coin, not per symbol)
+        if self.trades_enabled:
+            trade_topics = [f"publicTrade.{bc}" for bc in self.discovered_base_coins]
+            subscribe_msg = {
+                "req_id": "trades_sub",
+                "op": "subscribe",
+                "args": trade_topics
+            }
+            await self.websocket.send(json.dumps(subscribe_msg))
+            self.logger.info(f"Subscribed to trades for base coins: {self.discovered_base_coins}")
+
         self.logger.info(f"Subscription complete: {total_symbols} options symbols")
 
     def _seconds_until_next_utc_time(self, hour: int = 8, minute: int = 5) -> float:
@@ -539,6 +567,10 @@ class BybitOptionsService(BaseService):
             if self.orderbook_enabled:
                 ob_key = f"{self.orderbook_redis_prefix}:{symbol}"
                 self.redis_client.delete_key(ob_key)
+            # Delete trades key if enabled
+            if self.trades_enabled:
+                trades_key = f"{self.trades_redis_prefix}:{symbol}"
+                self.redis_client.delete_key(trades_key)
         if deleted:
             self.logger.info(f"Cleaned up {deleted} expired Redis keys")
 
@@ -581,9 +613,10 @@ class BybitOptionsService(BaseService):
                 if expired:
                     self.logger.info(f"Unsubscribing from {len(expired)} expired symbols")
                     await self._unsubscribe_symbols(list(expired))
-                    # Clean up in-memory orderbook state
+                    # Clean up in-memory state
                     for symbol in expired:
                         self._orderbooks.pop(symbol, None)
+                        self._trades.pop(symbol, None)
                     # Actively delete expired Redis keys
                     self._cleanup_expired_redis_keys(list(expired))
 
@@ -604,6 +637,11 @@ class BybitOptionsService(BaseService):
                     ob_all_keys = self.redis_client.get_all_keys(ob_pattern)
                     ob_active_keys = {f"{self.orderbook_redis_prefix}:{s}" for s in self.active_symbols}
                     orphaned.extend([k for k in ob_all_keys if k not in ob_active_keys])
+                if self.trades_enabled:
+                    trades_pattern = f"{self.trades_redis_prefix}:*"
+                    trades_keys = self.redis_client.get_all_keys(trades_pattern)
+                    trades_active = {f"{self.trades_redis_prefix}:{s}" for s in self.active_symbols}
+                    orphaned.extend([k for k in trades_keys if k not in trades_active])
                 if orphaned:
                     for key in orphaned:
                         self.redis_client.delete_key(key)
@@ -691,6 +729,8 @@ class BybitOptionsService(BaseService):
                 await self._process_ticker_update(data)
             elif topic.startswith('orderbook.'):
                 await self._process_orderbook_update(data)
+            elif topic.startswith('publicTrade.'):
+                await self._process_trade_update(data)
             else:
                 # Log unknown message types at debug level
                 self.logger.debug(f"Received message type: {data.get('op', 'unknown')}")
@@ -937,6 +977,77 @@ class BybitOptionsService(BaseService):
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")
 
+    async def _process_trade_update(self, data: dict):
+        """Process options trade update and store in Redis.
+
+        Bybit V5 options trades come via publicTrade.{baseCoin} topic.
+        Each message contains a list of trades across all options for that base coin.
+
+        Args:
+            data: Trade update data with 'data' list of trade dicts
+        """
+        if not self.trades_enabled:
+            return
+
+        try:
+            trades_list = data.get('data', [])
+            if not isinstance(trades_list, list):
+                return
+
+            # Group trades by symbol and process
+            updated_symbols = set()
+            for trade in trades_list:
+                symbol = trade.get('s', '')
+                if not symbol or symbol not in self.active_symbols_set:
+                    continue
+
+                # Parse trade fields
+                try:
+                    price = float(trade.get('p', 0))
+                    qty = float(trade.get('v', 0))
+                except (ValueError, TypeError):
+                    continue
+
+                if price < 0 or qty <= 0 or not math.isfinite(price) or not math.isfinite(qty):
+                    continue
+
+                # Initialize deque if needed
+                if symbol not in self._trades:
+                    self._trades[symbol] = deque(maxlen=self.trades_limit)
+
+                trade_entry = {
+                    'p': price,
+                    'q': qty,
+                    's': trade.get('S', 'Buy'),  # Side: Buy/Sell
+                    't': trade.get('T', int(time.time() * 1000)),  # Timestamp ms
+                    'id': str(trade.get('i', f"opt_{int(time.time() * 1000)}"))
+                }
+
+                self._trades[symbol].append(trade_entry)
+                updated_symbols.add(symbol)
+
+            # Store updated symbols in Redis
+            for symbol in updated_symbols:
+                trades_deque = self._trades.get(symbol)
+                if not trades_deque:
+                    continue
+
+                redis_key = f"{self.trades_redis_prefix}:{symbol}"
+                success = self.redis_client.set_trades_data(
+                    key=redis_key,
+                    trades=list(trades_deque),
+                    original_symbol=symbol,
+                    ttl=self.redis_ttl
+                )
+
+                if success:
+                    self.logger.debug(
+                        f"Stored {len(trades_deque)} trades for {symbol}"
+                    )
+
+        except Exception as e:
+            self.logger.error(f"Error processing trade update: {e}")
+
     async def stop(self):
         """Stop the service."""
         self.running = False
@@ -949,6 +1060,7 @@ class BybitOptionsService(BaseService):
                 self.logger.error(f"Error closing WebSocket: {e}")
 
         self._orderbooks.clear()
+        self._trades.clear()
         self.logger.info("Bybit Options Service stopped")
 
 
