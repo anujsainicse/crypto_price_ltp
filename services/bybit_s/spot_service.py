@@ -130,7 +130,7 @@ class BybitSpotService(BaseService):
 
         for symbol in self.symbols:
             # Build channel list for this symbol
-            channels = [f"tickers.{symbol}"]
+            channels = [f"kline.1.{symbol}"]
 
             if self.orderbook_enabled:
                 channels.append(f"orderbook.{self.orderbook_depth}.{symbol}")
@@ -163,7 +163,7 @@ class BybitSpotService(BaseService):
             topic = data.get('topic', '')
 
             # Route to appropriate handler based on topic prefix
-            if topic.startswith('tickers.'):
+            if topic.startswith('kline.'):
                 await self._process_ticker_update(data)
             elif topic.startswith('orderbook.'):
                 await self._process_orderbook_update(data)
@@ -176,54 +176,72 @@ class BybitSpotService(BaseService):
             self.logger.error(f"Error processing message: {e}")
 
     async def _process_ticker_update(self, data: dict):
-        """Process ticker update and store in Redis.
+        """Process kline update and store in Redis.
 
-        Args:
-            data: Ticker update data
+        Kline payload shape: data["data"] is a list of candle dicts and the
+        symbol is only present in the topic string (kline.{interval}.{symbol}).
         """
         try:
-            ticker_data = data.get('data', {})
-            symbol = ticker_data.get('symbol', '')
-            last_price = ticker_data.get('lastPrice')
-
-            if not symbol or not last_price:
+            candles = data.get('data') or []
+            if not candles:
                 return
 
-            # Validate price before float conversion
+            candle = candles[-1]
+            if not isinstance(candle, dict):
+                return
+
+            topic = data.get('topic', '')
+            symbol = topic.split('.')[-1]
+            close_price = candle.get('close')
+
+            if not symbol or close_price is None:
+                return
+
             try:
-                price_float = float(last_price)
+                price_float = float(close_price)
                 if not math.isfinite(price_float) or price_float <= 0:
-                    self.logger.warning(f"Invalid price for {symbol}: {last_price}")
+                    self.logger.warning(f"Invalid price for {symbol}: {close_price}")
                     return
             except (ValueError, TypeError):
-                self.logger.warning(f"Cannot convert price to float for {symbol}: {last_price}")
+                self.logger.warning(f"Cannot convert price to float for {symbol}: {close_price}")
                 return
 
             redis_symbol = self._get_redis_symbol(symbol)
 
-            # Store in Redis
+            additional_data = {
+                'open': candle.get('open', '0'),
+                'high': candle.get('high', '0'),
+                'low': candle.get('low', '0'),
+                'close': candle.get('close', '0'),
+                'volume': candle.get('volume', '0'),
+            }
+
+            # Bybit candle timestamp is ms since epoch; consumers expect seconds
+            candle_ts_ms = candle.get('timestamp')
+            if candle_ts_ms is not None:
+                try:
+                    additional_data['timestamp'] = str(int(int(candle_ts_ms) / 1000))
+                except (ValueError, TypeError):
+                    pass
+
             redis_key = f"{self.redis_prefix}:{redis_symbol}"
             success = self.redis_client.set_price_data(
                 key=redis_key,
                 price=price_float,
                 symbol=symbol,
-                additional_data={
-                    'volume_24h': ticker_data.get('volume24h', '0'),
-                    'high_24h': ticker_data.get('highPrice24h', '0'),
-                    'low_24h': ticker_data.get('lowPrice24h', '0'),
-                    'price_change_percent': ticker_data.get('price24hPcnt', '0')
-                },
+                additional_data=additional_data,
                 ttl=self.redis_ttl
             )
 
             if success:
                 self.logger.debug(
-                    f"Updated {redis_symbol}: ${last_price} "
-                    f"(24h change: {ticker_data.get('price24hPcnt', '0')}%)"
+                    f"Updated {redis_symbol}: ${close_price} "
+                    f"(O:{candle.get('open')} H:{candle.get('high')} "
+                    f"L:{candle.get('low')} V:{candle.get('volume')})"
                 )
 
         except Exception as e:
-            self.logger.error(f"Error processing ticker update: {e}")
+            self.logger.error(f"Error processing kline update: {e}")
 
     async def _process_orderbook_update(self, data: dict):
         """Process orderbook update and store in Redis.
