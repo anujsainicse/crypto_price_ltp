@@ -191,7 +191,8 @@ class BybitSpotService(BaseService):
                 return
 
             topic = data.get('topic', '')
-            symbol = topic.split('.')[-1]
+            # split('.', 2) keeps inner dots in symbol intact for forward compatibility
+            symbol = topic.split('.', 2)[-1]
             close_price = candle.get('close')
 
             if not symbol or close_price is None:

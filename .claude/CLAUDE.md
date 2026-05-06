@@ -62,8 +62,8 @@ The Crypto Price LTP service provides real-time price data via WebSocket streami
 
 | Exchange | Service | Market Type | Symbols | Data Provided |
 |----------|---------|-------------|---------|---------------|
-| **Bybit** | `bybit_spot` | Spot | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
-| **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP + Orderbook + Trades |
+| **Bybit** | `bybit_spot` | Spot | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP (kline.1) + OHLCV + Orderbook + Trades |
+| **Bybit** | `bybit_spot_testnet` | Spot (Testnet) | BTC, ETH, SOL, BNB, DOGE, MNT, HYPE | LTP (kline.1) + OHLCV + Orderbook + Trades |
 | **Bybit** | `bybit_futures_orderbook` | Futures | BTC, ETH, SOL, BNB, DOGE | Orderbook only |
 | **Bybit** | `bybit_options` | Options | All available (dynamic) | LTP + Greeks + IV + Orderbook + Trades |
 | **Binance** | `binance_spot` | Spot | BTC, ETH, SOL, BNB, DOGE | LTP + Orderbook + Trades |
@@ -142,7 +142,7 @@ hyperliquid_futures_trades:BTC
 
 ### Hash Fields
 
-**LTP/Ticker Data:**
+**LTP/Ticker Data (generic — Binance / CoinDCX / Delta / HyperLiquid):**
 ```json
 {
   "ltp": "45000.50",
@@ -155,6 +155,24 @@ hyperliquid_futures_trades:BTC
   "current_funding_rate": "0.0001"
 }
 ```
+
+**LTP/OHLCV Data (Bybit Spot + Bybit Spot Testnet — sourced from `kline.1.{symbol}`):**
+```json
+{
+  "ltp": "81895.6",
+  "timestamp": "1778058652",
+  "original_symbol": "BTCUSDT",
+  "open": "81854.9",
+  "high": "81896.6",
+  "low": "81854.9",
+  "close": "81895.6",
+  "volume": "6.379417"
+}
+```
+- `ltp` mirrors `close` (last trade price within the in-progress 1-minute candle).
+- `timestamp` is the candle's own update time (Bybit-side, ms→s converted).
+- `volume` is **per-minute** volume within the bucket, not 24h.
+- 24h fields (`volume_24h`, `high_24h`, `low_24h`, `price_change_percent`) are **not provided** — kline channel does not expose them. If 24h stats are needed in the future, add a REST poller for `/v5/market/tickers`.
 
 **Orderbook Data:**
 ```json
@@ -431,8 +449,8 @@ python -m services.bybit_spot
 
 | Service | File | Features |
 |---------|------|----------|
-| Bybit Spot | `services/bybit_s/spot_service.py` | LTP + Orderbook + Trades |
-| Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP + Orderbook + Trades |
+| Bybit Spot | `services/bybit_s/spot_service.py` | LTP (kline.1.close) + OHLCV + Orderbook + Trades |
+| Bybit Testnet | `services/bybit_spot_testnet/spot_testnet_service.py` | LTP (kline.1.close) + OHLCV + Orderbook + Trades |
 | Bybit Futures OB | `services/bybit_f/futures_orderbook_service.py` | Orderbook only |
 | Bybit Options | `services/bybit_o/options_service.py` | LTP + Greeks + IV + Orderbook + Trades (dynamic discovery) |
 | Binance Spot | `services/binance_s/spot_service.py` | LTP + Orderbook (20 levels) + Trades |
@@ -547,9 +565,11 @@ for key in ["coindcx_futures:BTC_USDT", "bybit_spot:ETHUSDT"]:
 
 ---
 
-**Last Updated**: February 2026
-**Version**: 2.8.0 (Added Binance USD-M Futures service)
+**Last Updated**: May 2026
+**Version**: 2.9.0 (Bybit Spot + Testnet migrated to `kline.1.{symbol}` for LTP; OHLCV exposed in Redis hash)
 **Part of**: Scalper Bot Ecosystem
+
+**Bybit Spot Note**: As of v2.9.0, Bybit Spot and Bybit Spot Testnet subscribe to `kline.1.{symbol}` instead of `tickers.{symbol}`. The Redis hash `bybit_spot:{symbol}` now exposes per-candle OHLCV (`open`, `high`, `low`, `close`, `volume`) and `ltp` is sourced from `close`. The 24h fields (`volume_24h`, `high_24h`, `low_24h`, `price_change_percent`) are no longer written — kline does not provide them. Symbol is parsed from the topic string since the kline payload does not include it.
 
 **CoinDCX Futures Note**: The REST-based service (`futures_rest_service.py`) provides LTP, orderbook, trades, and funding rate data via REST API polling for better stability than WebSocket.
 
