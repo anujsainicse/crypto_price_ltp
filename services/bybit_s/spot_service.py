@@ -50,9 +50,10 @@ class BybitSpotService(BaseService):
         # Quote currencies for symbol parsing (order matters - longest first)
         self.quote_currencies = config.get('quote_currencies', ['USDT', 'USDC', 'BTC', 'ETH'])
 
-        # In-memory state for orderbooks and trades
+        # In-memory state for orderbooks, trades, and last kline candle
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
         self._trades: Dict[str, deque] = {}
+        self._last_kline: Dict[str, Dict[str, Any]] = {}
 
     def _get_redis_symbol(self, symbol: str) -> str:
         """Return the symbol to use as Redis key suffix (full exchange symbol)."""
@@ -101,6 +102,7 @@ class BybitSpotService(BaseService):
         # Clear stale state on reconnection to prevent memory leaks and stale data
         self._orderbooks.clear()
         self._trades.clear()
+        self._last_kline.clear()
 
         async with websockets.connect(
             self.ws_url,
@@ -113,15 +115,25 @@ class BybitSpotService(BaseService):
             # Subscribe to all channels
             await self._subscribe_to_channels()
 
-            # Listen for messages
-            async for message in websocket:
-                if not self.running:
-                    break
+            # Start periodic Redis refresh for illiquid markets / quiet kline minutes
+            refresh_task = asyncio.create_task(self._refresh_caches_periodically())
 
+            try:
+                # Listen for messages
+                async for message in websocket:
+                    if not self.running:
+                        break
+
+                    try:
+                        await self._handle_message(message)
+                    except Exception as e:
+                        self.logger.error(f"Error handling message: {e}")
+            finally:
+                refresh_task.cancel()
                 try:
-                    await self._handle_message(message)
-                except Exception as e:
-                    self.logger.error(f"Error handling message: {e}")
+                    await refresh_task
+                except asyncio.CancelledError:
+                    pass
 
     async def _subscribe_to_channels(self):
         """Subscribe to ticker, orderbook, and trades updates for configured symbols."""
@@ -130,7 +142,7 @@ class BybitSpotService(BaseService):
 
         for symbol in self.symbols:
             # Build channel list for this symbol
-            channels = [f"tickers.{symbol}"]
+            channels = [f"kline.1.{symbol}"]
 
             if self.orderbook_enabled:
                 channels.append(f"orderbook.{self.orderbook_depth}.{symbol}")
@@ -163,7 +175,7 @@ class BybitSpotService(BaseService):
             topic = data.get('topic', '')
 
             # Route to appropriate handler based on topic prefix
-            if topic.startswith('tickers.'):
+            if topic.startswith('kline.'):
                 await self._process_ticker_update(data)
             elif topic.startswith('orderbook.'):
                 await self._process_orderbook_update(data)
@@ -176,54 +188,102 @@ class BybitSpotService(BaseService):
             self.logger.error(f"Error processing message: {e}")
 
     async def _process_ticker_update(self, data: dict):
-        """Process ticker update and store in Redis.
+        """Process kline update, cache it, and store in Redis.
 
-        Args:
-            data: Ticker update data
+        Kline payload shape: data["data"] is a list of candle dicts and the
+        symbol is only present in the topic string (kline.{interval}.{symbol}).
         """
         try:
-            ticker_data = data.get('data', {})
-            symbol = ticker_data.get('symbol', '')
-            last_price = ticker_data.get('lastPrice')
-
-            if not symbol or not last_price:
+            candles = data.get('data') or []
+            if not candles:
                 return
 
-            # Validate price before float conversion
+            candle = candles[-1]
+            if not isinstance(candle, dict):
+                return
+
+            topic = data.get('topic', '')
+            # split('.', 2) keeps inner dots in symbol intact for forward compatibility
+            symbol = topic.split('.', 2)[-1]
+            if not symbol:
+                return
+
+            close_price = candle.get('close')
+            if close_price is None:
+                return
+
             try:
-                price_float = float(last_price)
+                price_float = float(close_price)
                 if not math.isfinite(price_float) or price_float <= 0:
-                    self.logger.warning(f"Invalid price for {symbol}: {last_price}")
+                    self.logger.warning(f"Invalid price for {symbol}: {close_price}")
                     return
             except (ValueError, TypeError):
-                self.logger.warning(f"Cannot convert price to float for {symbol}: {last_price}")
+                self.logger.warning(f"Cannot convert price to float for {symbol}: {close_price}")
                 return
 
-            redis_symbol = self._get_redis_symbol(symbol)
-
-            # Store in Redis
-            redis_key = f"{self.redis_prefix}:{redis_symbol}"
-            success = self.redis_client.set_price_data(
-                key=redis_key,
-                price=price_float,
-                symbol=symbol,
-                additional_data={
-                    'volume_24h': ticker_data.get('volume24h', '0'),
-                    'high_24h': ticker_data.get('highPrice24h', '0'),
-                    'low_24h': ticker_data.get('lowPrice24h', '0'),
-                    'price_change_percent': ticker_data.get('price24hPcnt', '0')
-                },
-                ttl=self.redis_ttl
-            )
+            # Cache the candle for the periodic refresher; write through the shared helper.
+            self._last_kline[symbol] = candle
+            success = self._store_kline_to_redis(symbol)
 
             if success:
+                redis_symbol = self._get_redis_symbol(symbol)
                 self.logger.debug(
-                    f"Updated {redis_symbol}: ${last_price} "
-                    f"(24h change: {ticker_data.get('price24hPcnt', '0')}%)"
+                    f"Updated {redis_symbol}: ${close_price} "
+                    f"(O:{candle.get('open')} H:{candle.get('high')} "
+                    f"L:{candle.get('low')} V:{candle.get('volume')})"
                 )
 
         except Exception as e:
-            self.logger.error(f"Error processing ticker update: {e}")
+            self.logger.error(f"Error processing kline update: {e}")
+
+    def _store_kline_to_redis(self, symbol: str) -> bool:
+        """Write the cached kline candle for ``symbol`` to Redis.
+
+        Shared by ``_process_ticker_update`` and the periodic refresher so a
+        trade-quiet minute does not let ``{redis_prefix}:{symbol}`` expire.
+        ``timestamp`` is the wall-clock write time set inside ``set_price_data``;
+        the Bybit-side candle update time is exposed separately as
+        ``candle_timestamp`` (seconds, ms→s converted).
+        """
+        candle = self._last_kline.get(symbol)
+        if not candle:
+            return False
+
+        close_price = candle.get('close')
+        if close_price is None:
+            return False
+
+        try:
+            price_float = float(close_price)
+            if not math.isfinite(price_float) or price_float <= 0:
+                return False
+        except (ValueError, TypeError):
+            return False
+
+        additional_data = {
+            'open': candle.get('open', '0'),
+            'high': candle.get('high', '0'),
+            'low': candle.get('low', '0'),
+            'close': candle.get('close', '0'),
+            'volume': candle.get('volume', '0'),
+        }
+
+        candle_ts_ms = candle.get('timestamp')
+        if candle_ts_ms is not None:
+            try:
+                additional_data['candle_timestamp'] = str(int(int(candle_ts_ms) / 1000))
+            except (ValueError, TypeError):
+                pass
+
+        redis_symbol = self._get_redis_symbol(symbol)
+        redis_key = f"{self.redis_prefix}:{redis_symbol}"
+        return self.redis_client.set_price_data(
+            key=redis_key,
+            price=price_float,
+            symbol=symbol,
+            additional_data=additional_data,
+            ttl=self.redis_ttl,
+        )
 
     async def _process_orderbook_update(self, data: dict):
         """Process orderbook update and store in Redis.
@@ -242,8 +302,6 @@ class BybitSpotService(BaseService):
 
             if not symbol:
                 return
-
-            redis_symbol = self._get_redis_symbol(symbol)
 
             if update_type == 'snapshot':
                 # Full orderbook replacement (validate item length to prevent IndexError)
@@ -292,74 +350,7 @@ class BybitSpotService(BaseService):
 
                 self._orderbooks[symbol]['update_id'] = ob_data.get('u', 0)
 
-            # Prepare sorted orderbook for Redis storage
-            ob = self._orderbooks.get(symbol, {})
-            if not ob:
-                return
-
-            # Sort bids descending, asks ascending
-            sorted_bids = sorted(
-                [[p, q] for p, q in ob.get('bids', {}).items()],
-                key=lambda x: float(x[0]),
-                reverse=True
-            )[:self.orderbook_depth]
-
-            sorted_asks = sorted(
-                [[p, q] for p, q in ob.get('asks', {}).items()],
-                key=lambda x: float(x[0])
-            )[:self.orderbook_depth]
-
-            # Validate empty orderbook
-            if not sorted_bids or not sorted_asks:
-                return
-
-            # Calculate spread and mid_price
-            spread = None
-            mid_price = None
-            if sorted_bids and sorted_asks:
-                # Validate nested structure before indexing
-                if len(sorted_bids[0]) < 1 or len(sorted_asks[0]) < 1:
-                    self.logger.warning(f"Malformed orderbook entry for {symbol}")
-                    return
-                try:
-                    best_bid = float(sorted_bids[0][0])
-                    best_ask = float(sorted_asks[0][0])
-
-                    if not math.isfinite(best_bid) or not math.isfinite(best_ask):
-                        return
-
-                    spread = best_ask - best_bid
-                    # Skip storing if spread is invalid (crossed book)
-                    if spread < 0:
-                        self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
-                        del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
-
-                        # Ensure stale data is removed from Redis immediately
-                        redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
-                        self.redis_client.delete_key(redis_key)
-                        return
-                    mid_price = (best_bid + best_ask) / 2
-                except (ValueError, TypeError):
-                    return
-
-            # Store in Redis using public API
-            redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
-            success = self.redis_client.set_orderbook_data(
-                key=redis_key,
-                bids=sorted_bids,
-                asks=sorted_asks,
-                spread=spread,
-                mid_price=mid_price,
-                update_id=ob.get('update_id', 0),
-                original_symbol=symbol,
-                ttl=self.redis_ttl
-            )
-
-            if success:
-                self.logger.debug(
-                    f"Updated orderbook {redis_symbol}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
-                    f"spread: {spread}"
-                )
+            self._store_orderbook_to_redis(symbol)
 
         except Exception as e:
             self.logger.error(f"Error processing orderbook update: {e}")
@@ -388,8 +379,6 @@ class BybitSpotService(BaseService):
                 if not symbol or price <= 0 or quantity <= 0:
                     continue
 
-                redis_symbol = self._get_redis_symbol(symbol)
-
                 # Initialize deque for this symbol if not exists (atomic)
                 self._trades.setdefault(symbol, deque(maxlen=self.trades_limit))
 
@@ -402,24 +391,149 @@ class BybitSpotService(BaseService):
                     'id': trade.get('i', '')      # trade id
                 })
 
-                # Store in Redis using public API
-                redis_key = f"{self.trades_redis_prefix}:{redis_symbol}"
-                trades_list = list(self._trades[symbol])
-                success = self.redis_client.set_trades_data(
-                    key=redis_key,
-                    trades=trades_list,
-                    original_symbol=symbol,
-                    ttl=self.redis_ttl
-                )
-
-                if success:
-                    self.logger.debug(
-                        f"Updated trades {redis_symbol}: {len(trades_list)} trades, "
-                        f"latest: {trade.get('p')} @ {trade.get('S')}"
-                    )
+                self._store_trades_to_redis(symbol)
 
         except Exception as e:
             self.logger.error(f"Error processing trade update: {e}")
+
+    def _store_orderbook_to_redis(self, symbol: str):
+        """Store in-memory orderbook for ``symbol`` to Redis.
+
+        Sorts bids/asks, validates spread, and writes to Redis with TTL.
+        Shared by ``_process_orderbook_update`` and the periodic refresher.
+        """
+        ob = self._orderbooks.get(symbol, {})
+        if not ob:
+            return
+
+        redis_symbol = self._get_redis_symbol(symbol)
+
+        # Sort bids descending, asks ascending
+        sorted_bids = sorted(
+            [[p, q] for p, q in ob.get('bids', {}).items()],
+            key=lambda x: float(x[0]),
+            reverse=True
+        )[:self.orderbook_depth]
+
+        sorted_asks = sorted(
+            [[p, q] for p, q in ob.get('asks', {}).items()],
+            key=lambda x: float(x[0])
+        )[:self.orderbook_depth]
+
+        # Validate empty orderbook
+        if not sorted_bids or not sorted_asks:
+            return
+
+        # Calculate spread and mid_price
+        spread = None
+        mid_price = None
+        if sorted_bids and sorted_asks:
+            # Validate nested structure before indexing
+            if len(sorted_bids[0]) < 1 or len(sorted_asks[0]) < 1:
+                self.logger.warning(f"Malformed orderbook entry for {symbol}")
+                return
+            try:
+                best_bid = float(sorted_bids[0][0])
+                best_ask = float(sorted_asks[0][0])
+
+                if not math.isfinite(best_bid) or not math.isfinite(best_ask):
+                    return
+
+                spread = best_ask - best_bid
+                # Skip storing if spread is invalid (crossed book)
+                if spread < 0:
+                    self.logger.warning(f"Invalid spread for {symbol}: {spread} (crossed book)")
+                    del self._orderbooks[symbol]  # Clear corrupted state to force fresh snapshot
+
+                    # Ensure stale data is removed from Redis immediately
+                    redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
+                    self.redis_client.delete_key(redis_key)
+                    return
+                mid_price = (best_bid + best_ask) / 2
+            except (ValueError, TypeError):
+                return
+
+        # Store in Redis using public API
+        redis_key = f"{self.orderbook_redis_prefix}:{redis_symbol}"
+        success = self.redis_client.set_orderbook_data(
+            key=redis_key,
+            bids=sorted_bids,
+            asks=sorted_asks,
+            spread=spread,
+            mid_price=mid_price,
+            update_id=ob.get('update_id', 0),
+            original_symbol=symbol,
+            ttl=self.redis_ttl
+        )
+
+        if success:
+            self.logger.debug(
+                f"Updated orderbook {redis_symbol}: {len(sorted_bids)} bids, {len(sorted_asks)} asks, "
+                f"spread: {spread}"
+            )
+
+    def _store_trades_to_redis(self, symbol: str):
+        """Store in-memory trades for ``symbol`` to Redis.
+
+        Shared by ``_process_trade_update`` and the periodic refresher.
+        """
+        trades_deque = self._trades.get(symbol)
+        if not trades_deque:
+            return
+
+        redis_symbol = self._get_redis_symbol(symbol)
+        redis_key = f"{self.trades_redis_prefix}:{redis_symbol}"
+        trades_list = list(trades_deque)
+
+        success = self.redis_client.set_trades_data(
+            key=redis_key,
+            trades=trades_list,
+            original_symbol=symbol,
+            ttl=self.redis_ttl
+        )
+
+        if success:
+            self.logger.debug(
+                f"Refreshed trades {redis_symbol}: {len(trades_list)} trades"
+            )
+
+    async def _refresh_caches_periodically(self):
+        """Periodically re-write in-memory caches to Redis.
+
+        Prevents TTL expiration when WS pushes are infrequent. The kline.1
+        channel only emits on trade activity, so trade-quiet minutes on
+        illiquid symbols (MNT, HYPE) would let ``{redis_prefix}:{symbol}``
+        expire without this refresher. Runs every 45s, well inside the 60s
+        TTL.
+        """
+        while self.running:
+            await asyncio.sleep(45)
+            refreshed_kline = 0
+            refreshed_ob = 0
+            refreshed_trades = 0
+            for symbol in list(self._last_kline.keys()):
+                try:
+                    if self._store_kline_to_redis(symbol):
+                        refreshed_kline += 1
+                except Exception as e:
+                    self.logger.error(f"Error refreshing kline for {symbol}: {e}")
+            for symbol in list(self._orderbooks.keys()):
+                try:
+                    self._store_orderbook_to_redis(symbol)
+                    refreshed_ob += 1
+                except Exception as e:
+                    self.logger.error(f"Error refreshing orderbook for {symbol}: {e}")
+            for symbol in list(self._trades.keys()):
+                try:
+                    self._store_trades_to_redis(symbol)
+                    refreshed_trades += 1
+                except Exception as e:
+                    self.logger.error(f"Error refreshing trades for {symbol}: {e}")
+            if refreshed_kline > 0 or refreshed_ob > 0 or refreshed_trades > 0:
+                self.logger.debug(
+                    f"Periodic refresh: {refreshed_kline} kline, "
+                    f"{refreshed_ob} orderbooks, {refreshed_trades} trades"
+                )
 
     async def stop(self):
         """Stop the service."""

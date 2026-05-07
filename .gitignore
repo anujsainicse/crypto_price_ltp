@@ -76,3 +76,5 @@ coindcx_options_discovery.zip
 
 # Temporary scripts (development only)
 scripts/
+
+.claude/scheduled_tasks.lock
