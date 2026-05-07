@@ -48,9 +48,10 @@ class BybitSpotTestnetService(BaseService):
         self.trades_limit = config.get('trades_limit', 50)
         self.trades_redis_prefix = config.get('trades_redis_prefix', 'bybit_spot_testnet_trades')
 
-        # In-memory state for orderbooks and trades
+        # In-memory state for orderbooks, trades, and last kline candle
         self._orderbooks: Dict[str, Dict[str, Any]] = {}
         self._trades: Dict[str, deque] = {}
+        self._last_kline: Dict[str, Dict[str, Any]] = {}
 
     def _get_redis_symbol(self, symbol: str) -> str:
         """Return the symbol to use as Redis key suffix (full exchange symbol)."""
@@ -99,6 +100,7 @@ class BybitSpotTestnetService(BaseService):
         # Clear stale state on reconnection to prevent memory leaks and stale data
         self._orderbooks.clear()
         self._trades.clear()
+        self._last_kline.clear()
 
         async with websockets.connect(
             self.ws_url,
@@ -111,8 +113,8 @@ class BybitSpotTestnetService(BaseService):
             # Subscribe to all channels
             await self._subscribe_to_channels()
 
-            # Start periodic Redis refresh for illiquid markets
-            refresh_task = asyncio.create_task(self._refresh_orderbooks_periodically())
+            # Start periodic Redis refresh for illiquid markets / quiet kline minutes
+            refresh_task = asyncio.create_task(self._refresh_caches_periodically())
 
             try:
                 # Listen for messages
@@ -184,7 +186,7 @@ class BybitSpotTestnetService(BaseService):
             self.logger.error(f"Error processing message: {e}")
 
     async def _process_ticker_update(self, data: dict):
-        """Process kline update and store in Redis.
+        """Process kline update, cache it, and store in Redis.
 
         Kline payload shape: data["data"] is a list of candle dicts and the
         symbol is only present in the topic string (kline.{interval}.{symbol}).
@@ -201,9 +203,11 @@ class BybitSpotTestnetService(BaseService):
             topic = data.get('topic', '')
             # split('.', 2) keeps inner dots in symbol intact for forward compatibility
             symbol = topic.split('.', 2)[-1]
-            close_price = candle.get('close')
+            if not symbol:
+                return
 
-            if not symbol or close_price is None:
+            close_price = candle.get('close')
+            if close_price is None:
                 return
 
             try:
@@ -215,34 +219,12 @@ class BybitSpotTestnetService(BaseService):
                 self.logger.warning(f"Cannot convert price to float for {symbol}: {close_price}")
                 return
 
-            redis_symbol = self._get_redis_symbol(symbol)
-
-            additional_data = {
-                'open': candle.get('open', '0'),
-                'high': candle.get('high', '0'),
-                'low': candle.get('low', '0'),
-                'close': candle.get('close', '0'),
-                'volume': candle.get('volume', '0'),
-            }
-
-            # Bybit candle timestamp is ms since epoch; consumers expect seconds
-            candle_ts_ms = candle.get('timestamp')
-            if candle_ts_ms is not None:
-                try:
-                    additional_data['timestamp'] = str(int(int(candle_ts_ms) / 1000))
-                except (ValueError, TypeError):
-                    pass
-
-            redis_key = f"{self.redis_prefix}:{redis_symbol}"
-            success = self.redis_client.set_price_data(
-                key=redis_key,
-                price=price,
-                symbol=symbol,
-                additional_data=additional_data,
-                ttl=self.redis_ttl
-            )
+            # Cache the candle for the periodic refresher; write through the shared helper.
+            self._last_kline[symbol] = candle
+            success = self._store_kline_to_redis(symbol)
 
             if success:
+                redis_symbol = self._get_redis_symbol(symbol)
                 self.logger.debug(
                     f"Updated {redis_symbol}: ${close_price} "
                     f"(O:{candle.get('open')} H:{candle.get('high')} "
@@ -251,6 +233,55 @@ class BybitSpotTestnetService(BaseService):
 
         except Exception as e:
             self.logger.error(f"Error processing kline update: {e}")
+
+    def _store_kline_to_redis(self, symbol: str) -> bool:
+        """Write the cached kline candle for ``symbol`` to Redis.
+
+        Shared by ``_process_ticker_update`` and the periodic refresher so a
+        trade-quiet minute does not let ``{redis_prefix}:{symbol}`` expire.
+        ``timestamp`` is the wall-clock write time set inside ``set_price_data``;
+        the Bybit-side candle update time is exposed separately as
+        ``candle_timestamp`` (seconds, ms→s converted).
+        """
+        candle = self._last_kline.get(symbol)
+        if not candle:
+            return False
+
+        close_price = candle.get('close')
+        if close_price is None:
+            return False
+
+        try:
+            price_float = float(close_price)
+            if not math.isfinite(price_float) or price_float <= 0:
+                return False
+        except (ValueError, TypeError):
+            return False
+
+        additional_data = {
+            'open': candle.get('open', '0'),
+            'high': candle.get('high', '0'),
+            'low': candle.get('low', '0'),
+            'close': candle.get('close', '0'),
+            'volume': candle.get('volume', '0'),
+        }
+
+        candle_ts_ms = candle.get('timestamp')
+        if candle_ts_ms is not None:
+            try:
+                additional_data['candle_timestamp'] = str(int(int(candle_ts_ms) / 1000))
+            except (ValueError, TypeError):
+                pass
+
+        redis_symbol = self._get_redis_symbol(symbol)
+        redis_key = f"{self.redis_prefix}:{redis_symbol}"
+        return self.redis_client.set_price_data(
+            key=redis_key,
+            price=price_float,
+            symbol=symbol,
+            additional_data=additional_data,
+            ttl=self.redis_ttl,
+        )
 
     async def _process_orderbook_update(self, data: dict):
         """Process orderbook update and store in Redis.
@@ -470,16 +501,25 @@ class BybitSpotTestnetService(BaseService):
                 f"Refreshed trades {redis_symbol}: {len(trades_list)} trades"
             )
 
-    async def _refresh_orderbooks_periodically(self):
-        """Periodically re-write in-memory orderbook and trades data to Redis.
+    async def _refresh_caches_periodically(self):
+        """Periodically re-write in-memory caches to Redis.
 
-        Prevents TTL expiration on illiquid markets where WebSocket updates
-        are infrequent. Runs every 45 seconds (safely before the 60s TTL).
+        Prevents TTL expiration when WS pushes are infrequent. The kline.1
+        channel only emits on trade activity, so trade-quiet minutes on
+        illiquid testnet symbols would let ``{redis_prefix}:{symbol}`` expire
+        without this refresher. Runs every 45s, well inside the 60s TTL.
         """
         while self.running:
             await asyncio.sleep(45)
+            refreshed_kline = 0
             refreshed_ob = 0
             refreshed_trades = 0
+            for symbol in list(self._last_kline.keys()):
+                try:
+                    if self._store_kline_to_redis(symbol):
+                        refreshed_kline += 1
+                except Exception as e:
+                    self.logger.error(f"Error refreshing kline for {symbol}: {e}")
             for symbol in list(self._orderbooks.keys()):
                 try:
                     self._store_orderbook_to_redis(symbol)
@@ -492,9 +532,10 @@ class BybitSpotTestnetService(BaseService):
                     refreshed_trades += 1
                 except Exception as e:
                     self.logger.error(f"Error refreshing trades for {symbol}: {e}")
-            if refreshed_ob > 0 or refreshed_trades > 0:
+            if refreshed_kline > 0 or refreshed_ob > 0 or refreshed_trades > 0:
                 self.logger.debug(
-                    f"Periodic refresh: {refreshed_ob} orderbooks, {refreshed_trades} trades"
+                    f"Periodic refresh: {refreshed_kline} kline, "
+                    f"{refreshed_ob} orderbooks, {refreshed_trades} trades"
                 )
 
     async def stop(self):
