@@ -1,0 +1,152 @@
+"""Gamma API discovery for Polymarket crypto Up/Down markets.
+
+Ported from polybot (~/random/polybot/backend/polybot/polymarket/gamma_client.py)
+and scalper backend (app/services/polymarket/gamma_client.py). Emits legs in the
+EXACT shape the scalper backend registry expects, with byte-identical tickers.
+
+Tickers MUST equal backend make_ticker(): PM<sha1(condition_id)[:8].upper()>:<OUTCOME>.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import json
+import re
+from typing import Any
+
+import aiohttp
+
+GAMMA_HOST = "https://gamma-api.polymarket.com"
+
+_KIND_RE = re.compile(r"^([a-z]+)-updown-(5m|15m|1h|4h|1d|1w|1mo|1y)-\d+$")
+_HOURLY_RE = re.compile(
+    r"^([a-z]+)-up-or-down-"
+    r"(?:january|february|march|april|may|june|july|august|september|october|november|december)"
+    r"-\d{1,2}-\d{4}-\d{1,2}(?:am|pm)-et$"
+)
+_ASSET_CODE: dict[str, str] = {
+    "btc": "BTC", "bitcoin": "BTC", "eth": "ETH", "ethereum": "ETH",
+    "sol": "SOL", "solana": "SOL", "doge": "DOGE", "dogecoin": "DOGE",
+    "bnb": "BNB", "xrp": "XRP", "hype": "HYPE", "hyperliquid": "HYPE",
+}
+
+
+def classify_slug(slug: str) -> str | None:
+    """Return market_kind (e.g. 'BTC_UD_5M') or None for non-target markets."""
+    s = (slug or "").lower()
+    m = _KIND_RE.match(s)
+    if m:
+        return f"{m.group(1).upper()}_UD_{m.group(2).upper()}"
+    m = _HOURLY_RE.match(s)
+    if m:
+        code = _ASSET_CODE.get(m.group(1))
+        return f"{code}_UD_1H" if code is not None else None
+    return None
+
+
+def normalize_outcome(label: str, index: int = 0) -> str:
+    n = (label or "").strip().lower()
+    if n.startswith("up"):
+        return "UP"
+    if n.startswith("down"):
+        return "DOWN"
+    if n in ("yes", "y"):
+        return "YES"
+    if n in ("no", "n"):
+        return "NO"
+    return "A" if index == 0 else "B"
+
+
+def make_ticker(condition_id: str, outcome_label: str, index: int = 0) -> str:
+    code = hashlib.sha1(condition_id.encode()).hexdigest()[:8].upper()
+    return f"PM{code}:{normalize_outcome(outcome_label, index)}"
+
+
+def _to_list(v: Any) -> list[Any]:
+    if isinstance(v, list):
+        return v
+    if isinstance(v, str):
+        try:
+            parsed = json.loads(v)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def parse_market_to_legs(raw: dict[str, Any]) -> list[dict] | None:
+    """Convert a Gamma /markets row into 2 scalper legs, or None if not a
+    binary crypto Up/Down market."""
+    slug = raw.get("slug", "")
+    if not slug or classify_slug(slug) is None:
+        return None
+    token_ids = _to_list(raw.get("clobTokenIds"))
+    outcomes = _to_list(raw.get("outcomes"))
+    if len(token_ids) != 2 or len(outcomes) != 2:
+        return None
+    cond = raw.get("conditionId") or ""
+    if not cond:
+        return None
+    tick = float(raw.get("tickSize") or "0.01")
+    if tick <= 0:
+        tick = 0.01
+    neg_risk = bool(raw.get("negRisk", False))
+    active = bool(raw.get("active", True))
+    closed = bool(raw.get("closed", False))
+    title = raw.get("question") or raw.get("title") or slug
+
+    legs: list[dict] = []
+    for i, (tid, label) in enumerate(zip(token_ids, outcomes)):
+        label_str = str(label)
+        legs.append({
+            "ticker": make_ticker(cond, label_str, i),
+            "condition_id": cond,
+            "token_id": str(tid),
+            "outcome": normalize_outcome(label_str, i),
+            "outcome_label": label_str,
+            "title": title,
+            "slug": slug,
+            "tick_size": tick,
+            "neg_risk": neg_risk,
+            "active": active,
+            "closed": closed,
+        })
+    return legs
+
+
+async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> list[dict]:
+    """Two-query Gamma merge (imminent endDate asc + recent startDate desc),
+    deduped by conditionId, filtered to crypto Up/Down, flattened to legs."""
+    now = dt.datetime.now(dt.timezone.utc)
+    end_min = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    start_min = (now - dt.timedelta(minutes=1500)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    params_imminent = {
+        "closed": "false", "active": "true", "limit": limit,
+        "order": "endDate", "ascending": "true", "end_date_min": end_min,
+    }
+    params_recent = {
+        "closed": "false", "active": "true", "limit": limit,
+        "order": "startDate", "ascending": "false", "start_date_min": start_min,
+    }
+
+    timeout = aiohttp.ClientTimeout(total=timeout_sec)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        rows: list[dict] = []
+        for params in (params_imminent, params_recent):
+            async with session.get(f"{GAMMA_HOST}/markets", params=params) as resp:
+                resp.raise_for_status()
+                rows.extend(await resp.json())
+
+    seen: set[str] = set()
+    legs: list[dict] = []
+    for raw in rows:
+        cid = raw.get("conditionId", "")
+        if cid and cid in seen:
+            continue
+        parsed = parse_market_to_legs(raw)
+        if parsed is not None:
+            if cid:
+                seen.add(cid)
+            legs.extend(parsed)
+    return legs
