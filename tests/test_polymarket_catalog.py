@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from services.polymarket.polymarket_service import PolymarketService
+
 
 class _FakeAsyncRedis:
     def __init__(self):
@@ -16,12 +18,11 @@ class _FakeAsyncRedis:
         return True
 
 
+# Patch RedisClient so BaseService.__init__ does not try to connect to Redis.
+@patch("core.base_service.RedisClient", return_value=MagicMock())
 @pytest.mark.asyncio
-async def test_write_catalog_serializes_legs_and_sets_ttl():
-    # Patch RedisClient so BaseService.__init__ does not try to connect to Redis
-    with patch("core.base_service.RedisClient", return_value=MagicMock()):
-        from services.polymarket.polymarket_service import PolymarketService
-        svc = PolymarketService({"enabled": True})
+async def test_write_catalog_serializes_legs_and_sets_ttl(_mock_redis_client):
+    svc = PolymarketService({"enabled": True})
     fake = _FakeAsyncRedis()
     svc._redis = fake  # inject
 

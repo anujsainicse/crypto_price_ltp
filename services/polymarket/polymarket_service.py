@@ -22,16 +22,17 @@ from services.polymarket.gamma_discovery import list_active_legs
 
 class PolymarketService(BaseService):
     CATALOG_KEY = "polymarket:discovery:active"
-    CATALOG_TTL_SEC = 60
-    DISCOVERY_INTERVAL_SEC = 5
 
     def __init__(self, config: dict):
         super().__init__(service_name="Polymarket", config=config)
+        self.DISCOVERY_INTERVAL_SEC = config.get('discovery_interval_sec', 5)
+        self.CATALOG_TTL_SEC = config.get('catalog_ttl_sec', 60)
         self._redis: aioredis.Redis | None = None
         self._tasks: list[asyncio.Task] = []
+        self._stopped = False
 
     def _redis_url(self) -> str:
-        pwd = f":{settings.REDIS_PASSWORD}@" if getattr(settings, "REDIS_PASSWORD", None) else ""
+        pwd = f":{settings.REDIS_PASSWORD}@" if settings.REDIS_PASSWORD else ""
         return f"redis://{pwd}{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
 
     async def start(self):
@@ -46,6 +47,9 @@ class PolymarketService(BaseService):
         await self._shutdown_event.wait()
 
     async def stop(self):
+        if self._stopped:
+            return
+        self._stopped = True
         self.running = False
         self._shutdown_event.set()
         for t in self._tasks:
@@ -79,5 +83,7 @@ class PolymarketService(BaseService):
                 pass
 
     async def _write_catalog(self, legs: list[dict]):
+        if self._redis is None:
+            return
         await self._redis.set(self.CATALOG_KEY, json.dumps(legs))
         await self._redis.expire(self.CATALOG_KEY, self.CATALOG_TTL_SEC)
