@@ -36,6 +36,9 @@ def classify_slug(slug: str) -> str | None:
     s = (slug or "").lower()
     m = _KIND_RE.match(s)
     if m:
+        # Intentional asymmetry (faithful to polybot): the short-horizon
+        # "-updown-" path uppercases the RAW asset prefix directly, while the
+        # hourly path below is gated through _ASSET_CODE.
         return f"{m.group(1).upper()}_UD_{m.group(2).upper()}"
     m = _HOURLY_RE.match(s)
     if m:
@@ -45,6 +48,10 @@ def classify_slug(slug: str) -> str | None:
 
 
 def normalize_outcome(label: str, index: int = 0) -> str:
+    """Map a human outcome label to a canonical code (UP/DOWN/YES/NO/A/B).
+
+    Falls back to positional A/B for unknown labels (index=0 -> A, index=1+ -> B).
+    """
     n = (label or "").strip().lower()
     if n.startswith("up"):
         return "UP"
@@ -63,6 +70,12 @@ def make_ticker(condition_id: str, outcome_label: str, index: int = 0) -> str:
 
 
 def _to_list(v: Any) -> list[Any]:
+    """Normalise a Gamma field that may be a proper list or a JSON-encoded string.
+
+    Polymarket's Gamma API returns `outcomes` and `clobTokenIds` as either a
+    native JSON array or a JSON-encoded string (e.g. '["Up","Down"]'). Both
+    forms must be handled.
+    """
     if isinstance(v, list):
         return v
     if isinstance(v, str):
@@ -144,6 +157,8 @@ async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> li
         cid = raw.get("conditionId", "")
         if cid and cid in seen:
             continue
+        # Rows with no conditionId aren't deduped here (empty cid can't seed the
+        # set); they're filtered out by parse_market_to_legs's `if not cond` guard.
         parsed = parse_market_to_legs(raw)
         if parsed is not None:
             if cid:

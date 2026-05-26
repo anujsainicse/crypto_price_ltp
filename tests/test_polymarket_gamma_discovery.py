@@ -1,4 +1,6 @@
 """Unit tests for the LTP Polymarket Gamma discovery client."""
+import hashlib
+
 import pytest
 
 from services.polymarket.gamma_discovery import (
@@ -18,6 +20,8 @@ def test_make_ticker_is_deterministic_and_matches_backend_format():
     assert t_up.split(":")[0] == t_down.split(":")[0]
     assert make_ticker(cond, "Up", 0) == t_up
     assert len(t_up) <= 20
+    # Pin the exact vector: must byte-match the scalper backend make_ticker.
+    assert t_up == "PM" + hashlib.sha1(b"0xabc123").hexdigest()[:8].upper() + ":UP"
 
 
 def test_normalize_outcome():
@@ -31,6 +35,10 @@ def test_classify_slug_matches_crypto_updown_only():
     assert classify_slug("btc-updown-5m-1778567100") == "BTC_UD_5M"
     assert classify_slug("bitcoin-up-or-down-may-13-2026-5am-et") == "BTC_UD_1H"
     assert classify_slug("will-the-fed-cut-rates") is None
+
+
+def test_classify_slug_hourly_unknown_asset_returns_none():
+    assert classify_slug("avax-up-or-down-may-13-2026-5am-et") is None
 
 
 def test_parse_market_to_legs_builds_two_legs():
