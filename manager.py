@@ -24,6 +24,7 @@ from services.bybit_f import BybitFuturesOrderbookService
 from services.binance_s import BinanceSpotService
 from services.binance_o import BinanceOptionsService
 from services.binance_f import BinanceFuturesService
+from services.polymarket import PolymarketService
 
 
 class ServiceManager:
@@ -270,6 +271,18 @@ class ServiceManager:
                     'config': futures_config
                 }
                 self.logger.info("✓ Binance Futures Service loaded")
+
+        elif exchange == 'polymarket':
+            market_config = services_config.get('market', {})
+            if market_config.get('enabled', False):
+                service = PolymarketService(market_config)
+                self.services.append(service)
+                self.service_registry['polymarket_market'] = {
+                    'service': service,
+                    'task': None,
+                    'config': market_config,
+                }
+                self.logger.info("✓ Polymarket Market Service loaded")
 
     async def start_service(self, service_id: str) -> bool:
         """Start a specific service.
