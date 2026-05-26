@@ -18,6 +18,7 @@ import redis.asyncio as aioredis
 from config.settings import settings
 from core.base_service import BaseService
 from services.polymarket.gamma_discovery import list_active_legs
+from services.polymarket.market_feed import PolymarketMarketFeed
 
 
 class PolymarketService(BaseService):
@@ -40,9 +41,10 @@ class PolymarketService(BaseService):
         if self._redis is None:
             self._redis = aioredis.from_url(self._redis_url(), decode_responses=True)
         self.logger.info("Polymarket service starting (discovery + feed)")
+        feed = PolymarketMarketFeed(redis=self._redis, logger=self.logger)
         self._tasks = [
             asyncio.create_task(self._discovery_loop(), name="pm_discovery"),
-            # feed loop task added in Task 3
+            asyncio.create_task(feed.run_forever(), name="pm_feed"),
         ]
         await self._shutdown_event.wait()
 
