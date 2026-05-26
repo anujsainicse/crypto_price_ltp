@@ -469,3 +469,4 @@ polymarket:
       discovery_interval_sec: 5
       catalog_ttl_sec: 60
       redis_prefix: "polymarket"
+      redis_ttl: 60

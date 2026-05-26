@@ -5,8 +5,10 @@ Two cooperating async loops sharing one async-Redis connection:
   - price-feed loop: public CLOB market WS for registered tokens (added in Task 3)
 
 Uses redis.asyncio (NOT the sync RedisClient) because the price feed is WS-driven
-and async by nature, and the writes must preserve the exact hash shapes the
-scalper backend already reads (ISO-8601 timestamps, no field changes).
+and async by nature, and the writes preserve the hash shapes the scalper backend
+already reads. Timestamps: the orderbook hash stays ISO-8601 (scalper market_data
+parses it with fromisoformat) while the price/LTP hash uses epoch seconds (the
+repo-wide int(timestamp) staleness contract). Both keys carry a redis_ttl.
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ class PolymarketService(BaseService):
         super().__init__(service_name="Polymarket", config=config)
         self.DISCOVERY_INTERVAL_SEC = config.get('discovery_interval_sec', 5)
         self.CATALOG_TTL_SEC = config.get('catalog_ttl_sec', 60)
+        self.REDIS_TTL = config.get('redis_ttl', 60)
         self._redis: aioredis.Redis | None = None
         self._tasks: list[asyncio.Task] = []
         self._stopped = False
@@ -41,7 +44,9 @@ class PolymarketService(BaseService):
         if self._redis is None:
             self._redis = aioredis.from_url(self._redis_url(), decode_responses=True)
         self.logger.info("Polymarket service starting (discovery + feed)")
-        feed = PolymarketMarketFeed(redis=self._redis, logger=self.logger)
+        feed = PolymarketMarketFeed(
+            redis=self._redis, logger=self.logger, redis_ttl=self.REDIS_TTL
+        )
         self._tasks = [
             asyncio.create_task(self._discovery_loop(), name="pm_discovery"),
             asyncio.create_task(feed.run_forever(), name="pm_feed"),

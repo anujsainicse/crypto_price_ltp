@@ -18,7 +18,16 @@ Orderbook  key: polymarket_ob:<TICKER>  (HASH)
 
 Price      key: polymarket:<TICKER>  (HASH)
     ltp        = str(mid_price)   — the outcome token's mid-price (0–1)
-    timestamp  = ISO-8601 UTC string
+    timestamp  = epoch seconds (str(int(time.time()))) — matches this repo's
+                 LTP contract so AOE/Monitoring `int(timestamp)` staleness
+                 checks work. The scalper price endpoint reads it as an opaque
+                 string, so epoch is compatible there too.
+
+Note the asymmetry: the orderbook timestamp is ISO-8601 (the scalper's
+market_data endpoint parses it via datetime.fromisoformat and CLAUDE.md
+documents the orderbook schema that way), while the price timestamp is epoch
+seconds (the repo-wide LTP staleness contract). Both consumer contracts are
+satisfied.
 
 Both keys come from backend/app/core/exchange_metadata.py:
     redis_prefix = "polymarket"
@@ -41,6 +50,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
@@ -95,9 +105,12 @@ class PolymarketMarketFeed:
         _books         : {token_id: {"bids": [...], "asks": [...]}}
     """
 
-    def __init__(self, redis: Any, logger) -> None:
+    def __init__(self, redis: Any, logger, redis_ttl: int = 60) -> None:
         self._redis = redis
         self._log = logger
+        # Per-key TTL (seconds) — matches the repo-wide 60s contract so stale
+        # data for resolved/delisted markets ages out instead of lingering.
+        self._ttl = redis_ttl
         # token_id → ticker (e.g. "BTC-UD:UP")
         self._token_ticker: Dict[str, str] = {}
         # In-memory book per token_id
@@ -402,22 +415,31 @@ class PolymarketMarketFeed:
         """
         mid_price = (best_bid + best_ask) / 2.0
         spread = best_ask - best_bid
-        ts = datetime.now(timezone.utc).isoformat()
+        # Orderbook: ISO-8601 — the scalper market_data endpoint parses this
+        # with datetime.fromisoformat() and CLAUDE.md documents it that way.
+        ob_ts = datetime.now(timezone.utc).isoformat()
+        # Price/LTP: epoch seconds — the repo-wide staleness contract is
+        # int(price_data["timestamp"]) (AOE/Monitoring); an ISO string breaks it.
+        price_ts = str(int(time.time()))
 
         ob_mapping = {
             "bids": json.dumps([[p, s] for p, s in bids]),
             "asks": json.dumps([[p, s] for p, s in asks]),
             "spread": str(spread),
             "mid_price": str(mid_price),
-            "timestamp": ts,
+            "timestamp": ob_ts,
         }
         price_mapping = {
             "ltp": str(mid_price),
-            "timestamp": ts,
+            "timestamp": price_ts,
         }
 
+        ob_key = f"polymarket_ob:{ticker}"
+        price_key = f"polymarket:{ticker}"
         try:
-            await self._redis.hset(f"polymarket_ob:{ticker}", mapping=ob_mapping)
-            await self._redis.hset(f"polymarket:{ticker}", mapping=price_mapping)
+            await self._redis.hset(ob_key, mapping=ob_mapping)
+            await self._redis.expire(ob_key, self._ttl)
+            await self._redis.hset(price_key, mapping=price_mapping)
+            await self._redis.expire(price_key, self._ttl)
         except Exception as e:
             self._log.error("[PolymarketFeed] Redis write error for %s: %s", ticker, e)
