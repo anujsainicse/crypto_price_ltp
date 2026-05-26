@@ -216,6 +216,7 @@ class ControlInterface:
             'binance_spot',
             'binance_futures',
             'binance_options',
+            'polymarket',
         ]
 
         counts = {}
@@ -249,6 +250,7 @@ class ControlInterface:
             'binance_spot',
             'binance_futures',
             'binance_options',
+            'polymarket',
         ]
 
         breakdown = {}

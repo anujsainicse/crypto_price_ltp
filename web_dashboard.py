@@ -56,7 +56,7 @@ async def index():
 # ==================== Service Metadata ====================
 
 def _get_services_info() -> Dict:
-    """Service metadata - single source of truth for all 14 services."""
+    """Service metadata - single source of truth for all 15 services."""
     return {
         'bybit_spot': {
             'name': 'Bybit Spot',
@@ -156,6 +156,13 @@ def _get_services_info() -> Dict:
             'type': 'options',
             'redis_prefix': 'binance_options',
             'data_types': ['ltp']
+        },
+        'polymarket_market': {
+            'name': 'Polymarket Market',
+            'exchange': 'polymarket',
+            'type': 'market',
+            'redis_prefix': 'polymarket',
+            'data_types': ['ltp', 'orderbook']
         }
     }
 

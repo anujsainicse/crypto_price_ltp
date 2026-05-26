@@ -458,3 +458,15 @@ binance:
       trades_enabled: false
       trades_limit: 50
       trades_redis_prefix: "binance_options_trades"
+
+polymarket:
+  name: "Polymarket"
+  enabled: true
+  services:
+    market:
+      enabled: true
+      auto_start: true
+      discovery_interval_sec: 5
+      catalog_ttl_sec: 60
+      redis_prefix: "polymarket"
+      redis_ttl: 60
