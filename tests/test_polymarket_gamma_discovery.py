@@ -81,37 +81,26 @@ def test_parse_kind_non_crypto_returns_none():
     assert parse_kind("") is None
 
 
-def test_derive_windows_prefers_gamma_dates():
-    ws, we = derive_windows(
-        "btc-updown-5m-1779881400",
-        "2026-05-27T07:35:00Z",
-        "2026-05-27T07:30:00Z",
-        "5m",
-    )
-    assert ws == "2026-05-27T07:30:00Z"
-    assert we == "2026-05-27T07:35:00Z"
-
-
-def test_derive_windows_fallback_start_from_interval():
-    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00Z", None, "5m")
+def test_derive_windows_start_is_end_minus_interval():
+    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00Z", "5m")
     assert we == "2026-05-27T07:35:00Z"
     assert ws == "2026-05-27T07:30:00Z"
 
 
 def test_derive_windows_fallback_end_from_slug_epoch():
-    ws, we = derive_windows("btc-updown-5m-1779881400", None, None, "5m")
+    ws, we = derive_windows("btc-updown-5m-1779881400", None, "5m")
     assert we == "2026-05-27T11:30:00Z"
     assert ws == "2026-05-27T11:25:00Z"
 
 
 def test_derive_windows_naive_date_treated_as_utc():
-    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00", "2026-05-27T07:30:00", "5m")
+    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00", "5m")
     assert we == "2026-05-27T07:35:00Z"
     assert ws == "2026-05-27T07:30:00Z"
 
 
 def test_derive_windows_unknown_interval_skips_start():
-    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00Z", None, "99x")
+    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00Z", "99x")
     assert we == "2026-05-27T07:35:00Z"
     assert ws is None
 

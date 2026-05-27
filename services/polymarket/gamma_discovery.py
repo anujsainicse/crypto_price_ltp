@@ -70,19 +70,18 @@ def _iso_z(d: dt.datetime) -> str:
 
 
 def derive_windows(
-    slug: str, end_date: str | None, start_date: str | None, interval: str | None
+    slug: str, end_date: str | None, interval: str | None
 ) -> tuple[str | None, str | None]:
-    """(window_start, window_end) as UTC 'Z' ISO strings. Prefer Gamma's
-    structured endDate/startDate; fall back to the slug's trailing epoch for
-    window_end and (end - interval) for window_start."""
+    """(window_start, window_end) as UTC 'Z' ISO strings. window_end from
+    Gamma endDate (fallback: slug trailing epoch). window_start is always
+    window_end - interval (the kind defines the window length); Gamma
+    startDate is the market CREATION time and is deliberately NOT used."""
     we = _parse_iso(end_date)
-    ws = _parse_iso(start_date)
     if we is None:
         m = re.search(r"-(\d{10,})$", slug or "")
         if m:
             we = dt.datetime.fromtimestamp(int(m.group(1)), dt.timezone.utc)
-    if we is not None and ws is None and interval in _INTERVAL_SEC:
-        ws = we - dt.timedelta(seconds=_INTERVAL_SEC[interval])
+    ws = we - dt.timedelta(seconds=_INTERVAL_SEC[interval]) if (we is not None and interval in _INTERVAL_SEC) else None
     return (_iso_z(ws) if ws else None, _iso_z(we) if we else None)
 
 
@@ -165,9 +164,7 @@ def parse_market_to_legs(raw: dict[str, Any]) -> list[dict] | None:
     kind = parse_kind(slug)
     asset = kind[0] if kind else None
     interval = kind[1] if kind else None
-    window_start, window_end = derive_windows(
-        slug, raw.get("endDate"), raw.get("startDate"), interval
-    )
+    window_start, window_end = derive_windows(slug, raw.get("endDate"), interval)
 
     legs: list[dict] = []
     for i, (tid, label) in enumerate(zip(token_ids, outcomes)):
