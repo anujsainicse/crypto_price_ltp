@@ -30,6 +30,57 @@ _ASSET_CODE: dict[str, str] = {
     "bnb": "BNB", "xrp": "XRP", "hype": "HYPE", "hyperliquid": "HYPE",
 }
 
+_INTERVAL_SEC: dict[str, int] = {
+    "5m": 300, "15m": 900, "1h": 3600, "4h": 14400,
+    "1d": 86400, "1w": 604800, "1mo": 2592000, "1y": 31536000,
+}
+
+
+def parse_kind(slug: str) -> tuple[str, str] | None:
+    """Return (asset_code, interval) e.g. ('BTC', '5m') for a crypto Up/Down
+    slug, else None. Canonicalises the asset through _ASSET_CODE for BOTH slug
+    shapes (used only to populate the new asset/interval fields — classify_slug
+    keeps its own raw-prefix behaviour and is left untouched)."""
+    s = (slug or "").lower()
+    m = _KIND_RE.match(s)
+    if m:
+        return _ASSET_CODE.get(m.group(1), m.group(1).upper()), m.group(2)
+    m = _HOURLY_RE.match(s)
+    if m:
+        code = _ASSET_CODE.get(m.group(1))
+        return (code, "1h") if code is not None else None
+    return None
+
+
+def _parse_iso(value: str | None) -> dt.datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _iso_z(d: dt.datetime) -> str:
+    return d.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def derive_windows(
+    slug: str, end_date: str | None, start_date: str | None, interval: str | None
+) -> tuple[str | None, str | None]:
+    """(window_start, window_end) as UTC 'Z' ISO strings. Prefer Gamma's
+    structured endDate/startDate; fall back to the slug's trailing epoch for
+    window_end and (end - interval) for window_start."""
+    we = _parse_iso(end_date)
+    ws = _parse_iso(start_date)
+    if we is None:
+        m = re.search(r"-(\d+)$", slug or "")
+        if m:
+            we = dt.datetime.fromtimestamp(int(m.group(1)), dt.timezone.utc)
+    if we is not None and ws is None and interval in _INTERVAL_SEC:
+        ws = we - dt.timedelta(seconds=_INTERVAL_SEC[interval])
+    return (_iso_z(ws) if ws else None, _iso_z(we) if we else None)
+
 
 def classify_slug(slug: str) -> str | None:
     """Return market_kind (e.g. 'BTC_UD_5M') or None for non-target markets."""

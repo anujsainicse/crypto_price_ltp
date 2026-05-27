@@ -63,3 +63,43 @@ def test_parse_market_to_legs_builds_two_legs():
     assert up["tick_size"] == 0.01
     assert up["slug"] == "btc-updown-5m-1778567100"
     assert parse_market_to_legs({**raw, "slug": "will-fed-cut"}) is None
+
+
+from services.polymarket.gamma_discovery import parse_kind, derive_windows
+
+
+def test_parse_kind_short_horizon():
+    assert parse_kind("btc-updown-5m-1779881400") == ("BTC", "5m")
+    assert parse_kind("doge-updown-15m-1779881400") == ("DOGE", "15m")
+
+
+def test_parse_kind_hourly_shape():
+    assert parse_kind("ethereum-up-or-down-may-29-2026-7am-et") == ("ETH", "1h")
+
+
+def test_parse_kind_non_crypto_returns_none():
+    assert parse_kind("will-it-rain-in-nyc-tomorrow") is None
+    assert parse_kind("") is None
+
+
+def test_derive_windows_prefers_gamma_dates():
+    ws, we = derive_windows(
+        "btc-updown-5m-1779881400",
+        "2026-05-27T07:35:00Z",
+        "2026-05-27T07:30:00Z",
+        "5m",
+    )
+    assert ws == "2026-05-27T07:30:00Z"
+    assert we == "2026-05-27T07:35:00Z"
+
+
+def test_derive_windows_fallback_start_from_interval():
+    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00Z", None, "5m")
+    assert we == "2026-05-27T07:35:00Z"
+    assert ws == "2026-05-27T07:30:00Z"
+
+
+def test_derive_windows_fallback_end_from_slug_epoch():
+    ws, we = derive_windows("btc-updown-5m-1779881400", None, None, "5m")
+    assert we == "2026-05-27T11:30:00Z"
+    assert ws == "2026-05-27T11:25:00Z"
