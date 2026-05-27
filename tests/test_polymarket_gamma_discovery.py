@@ -103,3 +103,32 @@ def test_derive_windows_fallback_end_from_slug_epoch():
     ws, we = derive_windows("btc-updown-5m-1779881400", None, None, "5m")
     assert we == "2026-05-27T11:30:00Z"
     assert ws == "2026-05-27T11:25:00Z"
+
+
+from services.polymarket.gamma_discovery import parse_market_to_legs
+
+
+def _crypto_raw():
+    return {
+        "slug": "btc-updown-5m-1779881400",
+        "conditionId": "0xcond",
+        "clobTokenIds": '["111","222"]',
+        "outcomes": '["Up","Down"]',
+        "tickSize": "0.01",
+        "negRisk": False,
+        "active": True,
+        "closed": False,
+        "question": "Bitcoin Up or Down - May 27, 7:30AM-7:35AM ET",
+        "endDate": "2026-05-27T07:35:00Z",
+        "startDate": "2026-05-27T07:30:00Z",
+    }
+
+
+def test_parse_market_to_legs_includes_taxonomy_fields():
+    legs = parse_market_to_legs(_crypto_raw())
+    assert legs is not None and len(legs) == 2
+    for leg in legs:
+        assert leg["asset"] == "BTC"
+        assert leg["interval"] == "5m"
+        assert leg["window_start"] == "2026-05-27T07:30:00Z"
+        assert leg["window_end"] == "2026-05-27T07:35:00Z"

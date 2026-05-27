@@ -158,6 +158,12 @@ def parse_market_to_legs(raw: dict[str, Any]) -> list[dict] | None:
     active = bool(raw.get("active", True))
     closed = bool(raw.get("closed", False))
     title = raw.get("question") or raw.get("title") or slug
+    kind = parse_kind(slug)
+    asset = kind[0] if kind else None
+    interval = kind[1] if kind else None
+    window_start, window_end = derive_windows(
+        slug, raw.get("endDate"), raw.get("startDate"), interval
+    )
 
     legs: list[dict] = []
     for i, (tid, label) in enumerate(zip(token_ids, outcomes)):
@@ -174,6 +180,10 @@ def parse_market_to_legs(raw: dict[str, Any]) -> list[dict] | None:
             "neg_risk": neg_risk,
             "active": active,
             "closed": closed,
+            "asset": asset,
+            "interval": interval,
+            "window_start": window_start,
+            "window_end": window_end,
         })
     return legs
 
