@@ -8,6 +8,8 @@ from services.polymarket.gamma_discovery import (
     normalize_outcome,
     classify_slug,
     parse_market_to_legs,
+    parse_kind,
+    derive_windows,
 )
 
 
@@ -65,9 +67,6 @@ def test_parse_market_to_legs_builds_two_legs():
     assert parse_market_to_legs({**raw, "slug": "will-fed-cut"}) is None
 
 
-from services.polymarket.gamma_discovery import parse_kind, derive_windows
-
-
 def test_parse_kind_short_horizon():
     assert parse_kind("btc-updown-5m-1779881400") == ("BTC", "5m")
     assert parse_kind("doge-updown-15m-1779881400") == ("DOGE", "15m")
@@ -105,7 +104,16 @@ def test_derive_windows_fallback_end_from_slug_epoch():
     assert ws == "2026-05-27T11:25:00Z"
 
 
-from services.polymarket.gamma_discovery import parse_market_to_legs
+def test_derive_windows_naive_date_treated_as_utc():
+    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00", "2026-05-27T07:30:00", "5m")
+    assert we == "2026-05-27T07:35:00Z"
+    assert ws == "2026-05-27T07:30:00Z"
+
+
+def test_derive_windows_unknown_interval_skips_start():
+    ws, we = derive_windows("btc-updown-5m-1779881400", "2026-05-27T07:35:00Z", None, "99x")
+    assert we == "2026-05-27T07:35:00Z"
+    assert ws is None
 
 
 def _crypto_raw():

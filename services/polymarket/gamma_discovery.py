@@ -44,6 +44,9 @@ def parse_kind(slug: str) -> tuple[str, str] | None:
     s = (slug or "").lower()
     m = _KIND_RE.match(s)
     if m:
+        # .upper() fallback is intentional: a not-yet-mapped short-horizon asset
+        # still categorises off its raw prefix, unlike the hourly path below
+        # which requires an explicit _ASSET_CODE entry.
         return _ASSET_CODE.get(m.group(1), m.group(1).upper()), m.group(2)
     m = _HOURLY_RE.match(s)
     if m:
@@ -56,7 +59,8 @@ def _parse_iso(value: str | None) -> dt.datetime | None:
     if not value or not isinstance(value, str):
         return None
     try:
-        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        d = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return d if d.tzinfo is not None else d.replace(tzinfo=dt.timezone.utc)
     except ValueError:
         return None
 
@@ -74,7 +78,7 @@ def derive_windows(
     we = _parse_iso(end_date)
     ws = _parse_iso(start_date)
     if we is None:
-        m = re.search(r"-(\d+)$", slug or "")
+        m = re.search(r"-(\d{10,})$", slug or "")
         if m:
             we = dt.datetime.fromtimestamp(int(m.group(1)), dt.timezone.utc)
     if we is not None and ws is None and interval in _INTERVAL_SEC:
