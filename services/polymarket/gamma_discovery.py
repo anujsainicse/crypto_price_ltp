@@ -127,6 +127,27 @@ def parse_market_to_legs(raw: dict[str, Any]) -> list[dict] | None:
     return legs
 
 
+async def _get_markets(session: aiohttp.ClientSession, params: dict, date_key: str) -> list[dict]:
+    """GET /markets, tolerating Gamma's date-filter 500 bug.
+
+    gamma-api.polymarket.com intermittently returns HTTP 500 for /markets
+    queries carrying end_date_min/start_date_min. The identical query WITHOUT
+    the date filter (still ordered by endDate/startDate) returns 200 and still
+    surfaces the imminent/recent markets we need, so on a 5xx we retry once
+    without the date filter rather than aborting the whole discovery cycle.
+    """
+    async with session.get(f"{GAMMA_HOST}/markets", params=params) as resp:
+        if resp.status < 500 or date_key not in params:
+            resp.raise_for_status()
+            return await resp.json()
+    # First response was a 5xx on a date-filtered query (released above); retry
+    # the same query without the date filter.
+    fallback = {k: v for k, v in params.items() if k != date_key}
+    async with session.get(f"{GAMMA_HOST}/markets", params=fallback) as resp2:
+        resp2.raise_for_status()
+        return await resp2.json()
+
+
 async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> list[dict]:
     """Two-query Gamma merge (imminent endDate asc + recent startDate desc),
     deduped by conditionId, filtered to crypto Up/Down, flattened to legs."""
@@ -146,10 +167,8 @@ async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> li
     timeout = aiohttp.ClientTimeout(total=timeout_sec)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         rows: list[dict] = []
-        for params in (params_imminent, params_recent):
-            async with session.get(f"{GAMMA_HOST}/markets", params=params) as resp:
-                resp.raise_for_status()
-                rows.extend(await resp.json())
+        rows.extend(await _get_markets(session, params_imminent, "end_date_min"))
+        rows.extend(await _get_markets(session, params_recent, "start_date_min"))
 
     seen: set[str] = set()
     legs: list[dict] = []
