@@ -11,12 +11,15 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import re
 from typing import Any
 
 import aiohttp
 
 GAMMA_HOST = "https://gamma-api.polymarket.com"
+
+logger = logging.getLogger(__name__)
 
 _KIND_RE = re.compile(r"^([a-z]+)-updown-(5m|15m|1h|4h|1d|1w|1mo|1y)-\d+$")
 _HOURLY_RE = re.compile(
@@ -202,8 +205,17 @@ async def _get_markets(session: aiohttp.ClientSession, params: dict, date_key: s
         if resp.status < 500 or date_key not in params:
             resp.raise_for_status()
             return await resp.json()
+        status = resp.status
     # First response was a 5xx on a date-filtered query (released above); retry
-    # the same query without the date filter.
+    # the same query without the date filter. Warn so the degraded query is
+    # visible — Gamma's date-filter 500 is intermittent and would otherwise be
+    # silent behind the caller's normal "wrote N legs to catalog" success line.
+    logger.warning(
+        "pm_discovery: Gamma /markets returned %s on the %s-filtered query; "
+        "retrying without the date filter (degraded scope)",
+        status,
+        date_key,
+    )
     fallback = {k: v for k, v in params.items() if k != date_key}
     async with session.get(f"{GAMMA_HOST}/markets", params=fallback) as resp2:
         resp2.raise_for_status()

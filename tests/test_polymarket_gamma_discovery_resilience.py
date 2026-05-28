@@ -6,6 +6,7 @@ date filter returns 200, so discovery must fall back instead of aborting the
 whole cycle (which previously left polymarket:discovery:active unwritten).
 """
 import asyncio
+import logging
 
 import aiohttp
 
@@ -63,9 +64,10 @@ def _session_factory(handler):
     return _FakeSession
 
 
-def test_falls_back_to_undated_query_when_gamma_500s_on_date_filter(monkeypatch):
+def test_falls_back_to_undated_query_when_gamma_500s_on_date_filter(monkeypatch, caplog):
     """A 500 on the date-filtered query must trigger a retry without the date
-    filter (which returns 200), not abort the whole discovery cycle."""
+    filter (which returns 200), not abort the whole discovery cycle — and must
+    emit a warning so the degraded query is visible to operators."""
     calls = {"dated": 0, "undated": 0}
 
     def handler(params):
@@ -77,11 +79,15 @@ def test_falls_back_to_undated_query_when_gamma_500s_on_date_filter(monkeypatch)
 
     monkeypatch.setattr(gd.aiohttp, "ClientSession", _session_factory(handler))
 
-    legs = asyncio.run(gd.list_active_legs())
+    with caplog.at_level(logging.WARNING, logger="services.polymarket.gamma_discovery"):
+        legs = asyncio.run(gd.list_active_legs())
 
     assert legs, "expected fallback (undated query) to yield legs despite the 500"
     assert {leg["outcome"] for leg in legs} == {"UP", "DOWN"}
     assert calls["dated"] >= 1 and calls["undated"] >= 1
+    assert any(
+        "degraded scope" in r.getMessage() for r in caplog.records
+    ), "fallback to the undated query must log a warning"
 
 
 def test_uses_dated_query_result_when_gamma_is_healthy(monkeypatch):

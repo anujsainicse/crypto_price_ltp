@@ -117,7 +117,11 @@ def _crypto_raw():
         "closed": False,
         "question": "Bitcoin Up or Down - May 27, 7:30AM-7:35AM ET",
         "endDate": "2026-05-27T07:35:00Z",
-        "startDate": "2026-05-27T07:30:00Z",
+        # startDate is the market CREATION time — here a full DAY before endDate,
+        # mirroring the real Gamma behaviour. It must NOT drive window_start, so
+        # it is deliberately distinct from (endDate - interval) to catch a
+        # regression that reintroduces startDate-based derivation.
+        "startDate": "2026-05-26T07:30:00Z",
     }
 
 
@@ -127,5 +131,7 @@ def test_parse_market_to_legs_includes_taxonomy_fields():
     for leg in legs:
         assert leg["asset"] == "BTC"
         assert leg["interval"] == "5m"
+        # window_start is endDate - 5m (07:30 on the 27th), NOT the day-earlier
+        # startDate (07:30 on the 26th) — proving Gamma startDate is ignored.
         assert leg["window_start"] == "2026-05-27T07:30:00Z"
         assert leg["window_end"] == "2026-05-27T07:35:00Z"
