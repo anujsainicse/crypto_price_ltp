@@ -11,12 +11,15 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import re
 from typing import Any
 
 import aiohttp
 
 GAMMA_HOST = "https://gamma-api.polymarket.com"
+
+logger = logging.getLogger(__name__)
 
 _KIND_RE = re.compile(r"^([a-z]+)-updown-(5m|15m|1h|4h|1d|1w|1mo|1y)-\d+$")
 _HOURLY_RE = re.compile(
@@ -29,6 +32,60 @@ _ASSET_CODE: dict[str, str] = {
     "sol": "SOL", "solana": "SOL", "doge": "DOGE", "dogecoin": "DOGE",
     "bnb": "BNB", "xrp": "XRP", "hype": "HYPE", "hyperliquid": "HYPE",
 }
+
+_INTERVAL_SEC: dict[str, int] = {
+    "5m": 300, "15m": 900, "1h": 3600, "4h": 14400,
+    "1d": 86400, "1w": 604800, "1mo": 2592000, "1y": 31536000,
+}
+
+
+def parse_kind(slug: str) -> tuple[str, str] | None:
+    """Return (asset_code, interval) e.g. ('BTC', '5m') for a crypto Up/Down
+    slug, else None. Canonicalises the asset through _ASSET_CODE for BOTH slug
+    shapes (used only to populate the new asset/interval fields — classify_slug
+    keeps its own raw-prefix behaviour and is left untouched)."""
+    s = (slug or "").lower()
+    m = _KIND_RE.match(s)
+    if m:
+        # .upper() fallback is intentional: a not-yet-mapped short-horizon asset
+        # still categorises off its raw prefix, unlike the hourly path below
+        # which requires an explicit _ASSET_CODE entry.
+        return _ASSET_CODE.get(m.group(1), m.group(1).upper()), m.group(2)
+    m = _HOURLY_RE.match(s)
+    if m:
+        code = _ASSET_CODE.get(m.group(1))
+        return (code, "1h") if code is not None else None
+    return None
+
+
+def _parse_iso(value: str | None) -> dt.datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        d = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return d if d.tzinfo is not None else d.replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+
+def _iso_z(d: dt.datetime) -> str:
+    return d.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def derive_windows(
+    slug: str, end_date: str | None, interval: str | None
+) -> tuple[str | None, str | None]:
+    """(window_start, window_end) as UTC 'Z' ISO strings. window_end from
+    Gamma endDate (fallback: slug trailing epoch). window_start is always
+    window_end - interval (the kind defines the window length); Gamma
+    startDate is the market CREATION time and is deliberately NOT used."""
+    we = _parse_iso(end_date)
+    if we is None:
+        m = re.search(r"-(\d{10,})$", slug or "")
+        if m:
+            we = dt.datetime.fromtimestamp(int(m.group(1)), dt.timezone.utc)
+    ws = we - dt.timedelta(seconds=_INTERVAL_SEC[interval]) if (we is not None and interval in _INTERVAL_SEC) else None
+    return (_iso_z(ws) if ws else None, _iso_z(we) if we else None)
 
 
 def classify_slug(slug: str) -> str | None:
@@ -107,6 +164,10 @@ def parse_market_to_legs(raw: dict[str, Any]) -> list[dict] | None:
     active = bool(raw.get("active", True))
     closed = bool(raw.get("closed", False))
     title = raw.get("question") or raw.get("title") or slug
+    kind = parse_kind(slug)
+    asset = kind[0] if kind else None
+    interval = kind[1] if kind else None
+    window_start, window_end = derive_windows(slug, raw.get("endDate"), interval)
 
     legs: list[dict] = []
     for i, (tid, label) in enumerate(zip(token_ids, outcomes)):
@@ -123,8 +184,42 @@ def parse_market_to_legs(raw: dict[str, Any]) -> list[dict] | None:
             "neg_risk": neg_risk,
             "active": active,
             "closed": closed,
+            "asset": asset,
+            "interval": interval,
+            "window_start": window_start,
+            "window_end": window_end,
         })
     return legs
+
+
+async def _get_markets(session: aiohttp.ClientSession, params: dict, date_key: str) -> list[dict]:
+    """GET /markets, tolerating Gamma's date-filter 500 bug.
+
+    gamma-api.polymarket.com intermittently returns HTTP 500 for /markets
+    queries carrying end_date_min/start_date_min. The identical query WITHOUT
+    the date filter (still ordered by endDate/startDate) returns 200 and still
+    surfaces the imminent/recent markets we need, so on a 5xx we retry once
+    without the date filter rather than aborting the whole discovery cycle.
+    """
+    async with session.get(f"{GAMMA_HOST}/markets", params=params) as resp:
+        if resp.status < 500 or date_key not in params:
+            resp.raise_for_status()
+            return await resp.json()
+        status = resp.status
+    # First response was a 5xx on a date-filtered query (released above); retry
+    # the same query without the date filter. Warn so the degraded query is
+    # visible — Gamma's date-filter 500 is intermittent and would otherwise be
+    # silent behind the caller's normal "wrote N legs to catalog" success line.
+    logger.warning(
+        "pm_discovery: Gamma /markets returned %s on the %s-filtered query; "
+        "retrying without the date filter (degraded scope)",
+        status,
+        date_key,
+    )
+    fallback = {k: v for k, v in params.items() if k != date_key}
+    async with session.get(f"{GAMMA_HOST}/markets", params=fallback) as resp2:
+        resp2.raise_for_status()
+        return await resp2.json()
 
 
 async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> list[dict]:
@@ -146,10 +241,8 @@ async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> li
     timeout = aiohttp.ClientTimeout(total=timeout_sec)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         rows: list[dict] = []
-        for params in (params_imminent, params_recent):
-            async with session.get(f"{GAMMA_HOST}/markets", params=params) as resp:
-                resp.raise_for_status()
-                rows.extend(await resp.json())
+        rows.extend(await _get_markets(session, params_imminent, "end_date_min"))
+        rows.extend(await _get_markets(session, params_recent, "start_date_min"))
 
     seen: set[str] = set()
     legs: list[dict] = []
