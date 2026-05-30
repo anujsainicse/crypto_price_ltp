@@ -26,6 +26,19 @@ services:
       - ./config:/app/config
     networks:
       - crypto_network
+    # Keep host.docker.internal resolvable via a static /etc/hosts entry. The
+    # custom `dns:` below routes ALL names to Cloudflare, which does NOT know the
+    # Docker-internal `host.docker.internal` name the app uses to reach the host's
+    # Redis — without this the container loses Redis entirely.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Pin to Cloudflare DNS: the host's Tailscale resolver forwards to 8.8.8.8
+    # first, which was returning REFUSED for gamma-api.polymarket.com and
+    # starving pm_discovery. 1.1.1.1 resolves it, so the live-market catalog
+    # keeps flowing regardless of host/Tailscale DNS state.
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
     restart: unless-stopped
     # Resource limits for production
     deploy:
