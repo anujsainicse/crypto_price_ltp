@@ -627,6 +627,77 @@ body {
     gap: var(--space-sm);
 }
 
+/* ==================== Auto-start Toggle ==================== */
+
+.auto-start-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--space-sm);
+}
+
+.auto-start-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    user-select: none;
+}
+
+.auto-start-checkbox {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: relative;
+    display: inline-block;
+    width: 38px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.toggle-slider::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: #f8fafc;
+    border-radius: 50%;
+    transition: transform 0.2s ease;
+}
+
+.auto-start-checkbox:checked + .toggle-slider {
+    background: var(--btn-start);
+    border-color: var(--btn-start);
+}
+
+.auto-start-checkbox:checked + .toggle-slider::before {
+    transform: translateX(18px);
+}
+
+.auto-start-checkbox:disabled + .toggle-slider {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.auto-start-checkbox:focus-visible + .toggle-slider {
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.4);
+}
+
+.auto-start-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+}
+
 /* ==================== Loading ==================== */
 
 .loading {

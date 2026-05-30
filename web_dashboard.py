@@ -1,6 +1,9 @@
 """Web Dashboard for Crypto Price LTP System."""
 
 import asyncio
+import os
+import re
+import tempfile
 import uvicorn
 import signal
 import subprocess
@@ -10,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Dict
 from pathlib import Path
 
@@ -167,6 +171,116 @@ def _get_services_info() -> Dict:
     }
 
 
+# ==================== auto_start config (exchanges.yaml) ====================
+
+CONFIG_YAML_PATH = Path(__file__).parent / "config" / "exchanges.yaml"
+
+# Maps dashboard service_id -> (exchange_key, service_key) in exchanges.yaml.
+# Mirrors the registration in manager._load_exchange_services().
+SERVICE_YAML_PATH = {
+    'bybit_spot': ('bybit', 'spot'),
+    'bybit_futures_orderbook': ('bybit', 'futures_orderbook'),
+    'bybit_options': ('bybit', 'options'),
+    'coindcx_spot': ('coindcx', 'spot'),
+    'coindcx_futures_rest': ('coindcx', 'futures_rest'),
+    'delta_spot': ('delta', 'spot'),
+    'delta_futures_ltp': ('delta', 'futures_ltp'),
+    'delta_options': ('delta', 'options'),
+    'hyperliquid_spot': ('hyperliquid', 'spot'),
+    'hyperliquid_perpetual': ('hyperliquid', 'perpetual'),
+    'bybit_spot_testnet_spot': ('bybit_spot_testnet', 'spot'),
+    'binance_spot': ('binance', 'spot'),
+    'binance_options': ('binance', 'options'),
+    'binance_futures': ('binance', 'futures'),
+    'polymarket_market': ('polymarket', 'market'),
+}
+
+
+def _read_auto_start_flags() -> Dict[str, bool]:
+    """Read the persisted auto_start flag for every known service from exchanges.yaml."""
+    import yaml
+    try:
+        data = yaml.safe_load(CONFIG_YAML_PATH.read_text()) or {}
+    except Exception as e:
+        logger.error(f"Failed to read auto_start flags from {CONFIG_YAML_PATH}: {e}")
+        return {}
+
+    flags: Dict[str, bool] = {}
+    for service_id, (exch, svc) in SERVICE_YAML_PATH.items():
+        try:
+            svc_cfg = data.get(exch, {}).get('services', {}).get(svc, {})
+            flags[service_id] = bool(svc_cfg.get('auto_start', False))
+        except AttributeError:
+            flags[service_id] = False
+    return flags
+
+
+def _set_auto_start_in_yaml(exchange_key: str, service_key: str, value: bool) -> bool:
+    """Surgically set auto_start for one service block in exchanges.yaml.
+
+    Edits only the single `auto_start:` line (or inserts one) so all comments and
+    formatting are preserved. The file is rewritten atomically via a temp file +
+    os.replace so a concurrent /api/status read never sees a half-written file.
+    Returns True if the value was written, False if the block was not found.
+    """
+    val_str = "true" if value else "false"
+    lines = CONFIG_YAML_PATH.read_text().splitlines(keepends=True)
+    n = len(lines)
+
+    def is_top_key(line: str) -> bool:
+        return bool(line.strip()) and not line[0].isspace() and not line.lstrip().startswith('#')
+
+    # Locate the exchange block (top-level key at indent 0).
+    exch_re = re.compile(rf"^{re.escape(exchange_key)}:\s*(#.*)?$")
+    exch_start = next((i for i in range(n) if exch_re.match(lines[i])), None)
+    if exch_start is None:
+        return False
+    exch_end = next((j for j in range(exch_start + 1, n) if is_top_key(lines[j])), n)
+
+    # Locate the service block (key at indent 4 under `services:`).
+    svc_re = re.compile(rf"^    {re.escape(service_key)}:\s*(#.*)?$")
+    svc_start = next((k for k in range(exch_start, exch_end) if svc_re.match(lines[k])), None)
+    if svc_start is None:
+        return False
+
+    svc_end = exch_end
+    for k in range(svc_start + 1, exch_end):
+        line = lines[k]
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        indent = len(line) - len(line.lstrip(' '))
+        if indent <= 4:  # next sibling service or dedent
+            svc_end = k
+            break
+
+    # Replace existing auto_start line if present.
+    as_re = re.compile(r"^(\s*)auto_start:\s*\S+.*$")
+    target = next((k for k in range(svc_start, svc_end) if as_re.match(lines[k])), None)
+    if target is not None:
+        indent = as_re.match(lines[target]).group(1)
+        lines[target] = f"{indent}auto_start: {val_str}\n"
+    else:
+        # Insert after the `enabled:` line, else right after the service key line.
+        enabled_re = re.compile(r"^\s*enabled:\s*\S+.*$")
+        insert_at = next((k + 1 for k in range(svc_start, svc_end) if enabled_re.match(lines[k])), svc_start + 1)
+        lines.insert(insert_at, f"      auto_start: {val_str}\n")
+
+    fd, tmp_path = tempfile.mkstemp(dir=str(CONFIG_YAML_PATH.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("".join(lines))
+        os.replace(tmp_path, CONFIG_YAML_PATH)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+    return True
+
+
+class AutoStartRequest(BaseModel):
+    enabled: bool
+
+
 # ==================== API Endpoints ====================
 
 @app.get("/health")
@@ -211,6 +325,10 @@ async def get_status() -> Dict:
         # Service metadata from single source of truth
         services_info = _get_services_info()
 
+        # Persisted auto_start flags (from exchanges.yaml). The file is tiny, so a
+        # synchronous read is negligible and avoids asyncio.to_thread (Python 3.9+).
+        auto_start_flags = _read_auto_start_flags()
+
         # Build response
         services = []
         for service_id, info in services_info.items():
@@ -247,7 +365,8 @@ async def get_status() -> Dict:
                 'last_update': status_data.get('last_update'),
                 'data_count': total,
                 'data_counts': data_counts_detail,
-                'data_types': info.get('data_types', [])
+                'data_types': info.get('data_types', []),
+                'auto_start': auto_start_flags.get(service_id, False)
             }
             services.append(service)
 
@@ -317,6 +436,41 @@ async def stop_service(service_id: str) -> Dict:
     except Exception as e:
         logger.error(f"Error stopping service {service_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/service/{service_id}/auto-start")
+async def set_service_auto_start(service_id: str, req: AutoStartRequest) -> Dict:
+    """Persist a service's auto_start flag and immediately start/stop it to match."""
+    yaml_path = SERVICE_YAML_PATH.get(service_id)
+    if not yaml_path:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
+
+    exchange_key, service_key = yaml_path
+    try:
+        written = _set_auto_start_in_yaml(exchange_key, service_key, req.enabled)
+    except Exception as e:
+        logger.error(f"Error writing auto_start for {service_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update config: {e}")
+
+    if not written:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not locate {exchange_key}.services.{service_key} in config"
+        )
+
+    # Act now: bring the running state in line with the new preference.
+    if req.enabled:
+        control.send_start_command(service_id)
+    else:
+        control.send_stop_command(service_id)
+
+    logger.info(f"Set auto_start={req.enabled} for {service_id} and sent "
+                f"{'start' if req.enabled else 'stop'} command")
+    return {
+        'success': True,
+        'service_id': service_id,
+        'auto_start': req.enabled
+    }
 
 
 @app.post("/api/services/start-all")

@@ -37,15 +37,18 @@ const state = {
 // ==================== API Client ====================
 
 class APIClient {
-    async _request(url, method = 'GET') {
+    async _request(url, method = 'GET', body = null) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
 
         try {
-            const response = await fetch(`${CONFIG.API_BASE_URL}${url}`, {
-                method,
-                signal: controller.signal,
-            });
+            const options = { method, signal: controller.signal };
+            if (body !== null) {
+                options.headers = { 'Content-Type': 'application/json' };
+                options.body = JSON.stringify(body);
+            }
+
+            const response = await fetch(`${CONFIG.API_BASE_URL}${url}`, options);
             clearTimeout(timeout);
 
             if (!response.ok) {
@@ -69,6 +72,10 @@ class APIClient {
 
     stopService(serviceId) {
         return this._request(`/api/service/${serviceId}/stop`, 'POST');
+    }
+
+    setAutoStart(serviceId, enabled) {
+        return this._request(`/api/service/${serviceId}/auto-start`, 'POST', { enabled });
     }
 
     startAll() {
@@ -267,6 +274,31 @@ class UIRenderer {
             details.appendChild(this.createDetailRow('Updated', this.formatTime(service.last_update)));
         }
 
+        // Auto-start toggle (persists to exchanges.yaml + starts/stops now)
+        const autoStartRow = document.createElement('div');
+        autoStartRow.className = 'auto-start-row';
+
+        const toggleLabel = document.createElement('label');
+        toggleLabel.className = 'auto-start-toggle';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'auto-start-checkbox';
+        checkbox.checked = !!service.auto_start;
+        checkbox.onchange = (e) => this.handleToggleAutoStart(service.id, e.target.checked);
+
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+
+        const labelText = document.createElement('span');
+        labelText.className = 'auto-start-label';
+        labelText.textContent = 'Auto-start';
+
+        toggleLabel.appendChild(checkbox);
+        toggleLabel.appendChild(slider);
+        toggleLabel.appendChild(labelText);
+        autoStartRow.appendChild(toggleLabel);
+
         // Actions
         const actions = document.createElement('div');
         actions.className = 'service-actions';
@@ -288,6 +320,7 @@ class UIRenderer {
 
         card.appendChild(header);
         card.appendChild(details);
+        card.appendChild(autoStartRow);
         card.appendChild(actions);
 
         return card;
@@ -376,6 +409,12 @@ class UIRenderer {
         }
         if (detailValues.length > 1 && service.last_update) {
             detailValues[1].textContent = this.formatTime(service.last_update);
+        }
+
+        // Update auto-start toggle (skip while a toggle request is in flight)
+        const autoStartCheckbox = card.querySelector('.auto-start-checkbox');
+        if (autoStartCheckbox && !autoStartCheckbox.disabled) {
+            autoStartCheckbox.checked = !!service.auto_start;
         }
 
         // Update button states
@@ -528,6 +567,26 @@ class UIRenderer {
                 button.disabled = false;
                 button.className = 'btn btn-stop';
             }
+        }
+    }
+
+    async handleToggleAutoStart(serviceId, enabled) {
+        const card = document.getElementById(`service-${serviceId}`);
+        const checkbox = card ? card.querySelector('.auto-start-checkbox') : null;
+        if (checkbox) checkbox.disabled = true;
+
+        try {
+            await api.setAutoStart(serviceId, enabled);
+            showToast(
+                `Auto-start ${enabled ? 'enabled' : 'disabled'} for ${serviceId}`,
+                'success'
+            );
+        } catch (error) {
+            console.error(`Error setting auto-start for ${serviceId}:`, error);
+            showToast(`Failed to update auto-start for ${serviceId}: ${error.message}`, 'error');
+            if (checkbox) checkbox.checked = !enabled;  // revert on failure
+        } finally {
+            if (checkbox) checkbox.disabled = false;
         }
     }
 
