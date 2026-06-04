@@ -166,7 +166,7 @@ delta:
   services:
     futures_ltp:
       enabled: true
-      auto_start: false
+      auto_start: true
       websocket_url: "wss://socket.india.delta.exchange"
       symbols:
         - "BTCUSD"
