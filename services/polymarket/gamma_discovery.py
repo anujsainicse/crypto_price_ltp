@@ -8,6 +8,7 @@ Tickers MUST equal backend make_ticker(): PM<sha1(condition_id)[:8].upper()>:<OU
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import hashlib
 import json
@@ -18,6 +19,44 @@ from typing import Any
 import aiohttp
 
 GAMMA_HOST = "https://gamma-api.polymarket.com"
+
+# Gamma's /markets endpoint hard-caps every response at 100 rows regardless of the
+# `limit` query param, and the high-churn 5m/15m crypto Up/Down markets (created
+# every few minutes across every asset) saturate those first 100 rows. The sparse
+# 1h/4h markets sort hundreds of rows back and never appear, so /markets is used
+# only for the short-interval set; the long-interval markets are fetched by
+# targeted /events?series_slug= queries (see list_series_legs).
+#
+# Asset → Polymarket series slug for the 1-hour up/down markets. Their slugs are
+# wall-clock date strings (`ethereum-up-or-down-june-5-2026-7am-et`) that can't be
+# derived from `now`, so they must be enumerated via the series. Ported from
+# polybot (backend/polybot/polymarket/market_discovery.py). NOTE Polymarket's
+# naming is inconsistent: SOL hourly uses the spelled-out `solana-` prefix while
+# 4h uses the short `sol-` code. The /events endpoint honours `series_slug`;
+# /markets ignores it (verified 2026-05-15, re-verified live 2026-06-05).
+HOURLY_SERIES_SLUGS: dict[str, str] = {
+    "BTC": "btc-up-or-down-hourly",
+    "ETH": "eth-up-or-down-hourly",
+    "SOL": "solana-up-or-down-hourly",
+    "DOGE": "doge-up-or-down-hourly",
+    "BNB": "bnb-up-or-down-hourly",
+    "XRP": "xrp-up-or-down-hourly",
+    "HYPE": "hype-up-or-down-hourly",
+}
+
+# Asset → Polymarket series slug for the 4-hour up/down markets. 4H slugs are
+# aligned-timestamp (`eth-updown-4h-1780646400`) but the generic /markets
+# enumeration still buries them behind the 5m/15m churn, so the series query is
+# the reliable source for the next/prev 4H windows. Verified live 2026-06-05.
+FOUR_HOUR_SERIES_SLUGS: dict[str, str] = {
+    "BTC": "btc-up-or-down-4h",
+    "ETH": "eth-up-or-down-4h",
+    "SOL": "sol-up-or-down-4h",
+    "DOGE": "doge-up-or-down-4h",
+    "BNB": "bnb-up-or-down-4h",
+    "XRP": "xrp-up-or-down-4h",
+    "HYPE": "hype-up-or-down-4h",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -222,9 +261,49 @@ async def _get_markets(session: aiohttp.ClientSession, params: dict, date_key: s
         return await resp2.json()
 
 
+def _rows_to_legs(rows: list[dict]) -> list[dict]:
+    """Flatten Gamma /markets (or /events inner-market) rows to legs, deduped by
+    conditionId and filtered to crypto Up/Down via parse_market_to_legs."""
+    seen: set[str] = set()
+    legs: list[dict] = []
+    for raw in rows:
+        cid = raw.get("conditionId", "")
+        if cid and cid in seen:
+            continue
+        # Rows with no conditionId aren't deduped here (empty cid can't seed the
+        # set); they're filtered out by parse_market_to_legs's `if not cond` guard.
+        parsed = parse_market_to_legs(raw)
+        if parsed is not None:
+            if cid:
+                seen.add(cid)
+            legs.extend(parsed)
+    return legs
+
+
+def merge_legs_dedup(short_legs: list[dict], long_legs: list[dict]) -> list[dict]:
+    """Merge short-interval and long-interval legs into one catalog list, deduped
+    by condition_id (first occurrence wins, so short-interval rows take priority).
+
+    Both legs of a market share a condition_id, so a market present in short_legs
+    suppresses BOTH of its long_legs copies (and vice versa) — never half a pair."""
+    seen = {leg.get("condition_id") for leg in short_legs if leg.get("condition_id")}
+    merged = list(short_legs)
+    for leg in long_legs:
+        if leg.get("condition_id") in seen:
+            continue
+        merged.append(leg)
+    return merged
+
+
 async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> list[dict]:
-    """Two-query Gamma merge (imminent endDate asc + recent startDate desc),
-    deduped by conditionId, filtered to crypto Up/Down, flattened to legs."""
+    """Short-interval source: two-query Gamma /markets merge (imminent endDate asc
+    + recent startDate desc), deduped by conditionId, filtered to crypto Up/Down,
+    flattened to legs.
+
+    This captures the high-churn 5m/15m markets that dominate the first 100 rows
+    (Gamma's per-response cap). The sparse 1h/4h markets are fetched separately by
+    list_series_legs — paginating /markets to dredge them out is wasteful and was
+    rejected in favour of targeted /events series queries."""
     now = dt.datetime.now(dt.timezone.utc)
     end_min = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     start_min = (now - dt.timedelta(minutes=1500)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -244,17 +323,57 @@ async def list_active_legs(*, limit: int = 1000, timeout_sec: float = 8.0) -> li
         rows.extend(await _get_markets(session, params_imminent, "end_date_min"))
         rows.extend(await _get_markets(session, params_recent, "start_date_min"))
 
-    seen: set[str] = set()
-    legs: list[dict] = []
-    for raw in rows:
-        cid = raw.get("conditionId", "")
-        if cid and cid in seen:
-            continue
-        # Rows with no conditionId aren't deduped here (empty cid can't seed the
-        # set); they're filtered out by parse_market_to_legs's `if not cond` guard.
-        parsed = parse_market_to_legs(raw)
-        if parsed is not None:
-            if cid:
-                seen.add(cid)
-            legs.extend(parsed)
-    return legs
+    return _rows_to_legs(rows)
+
+
+async def _get_events_series(
+    session: aiohttp.ClientSession, series_slug: str, end_min: str
+) -> list[dict]:
+    """GET /events for one series, returning its flattened inner-market rows.
+
+    The /events endpoint honours `series_slug` (unlike /markets), so this returns
+    exactly the upcoming markets of `series_slug`, soonest-first. Each event wraps
+    one inner market. Returns [] on any HTTP error so one bad series can't abort
+    the whole long-interval refresh."""
+    params = {
+        "closed": "false", "active": "true", "limit": 10,
+        "order": "endDate", "ascending": "true",
+        "end_date_min": end_min, "series_slug": series_slug,
+    }
+    try:
+        async with session.get(f"{GAMMA_HOST}/events", params=params) as resp:
+            resp.raise_for_status()
+            events = await resp.json()
+    except aiohttp.ClientError as exc:
+        logger.warning(
+            "pm_discovery: Gamma /events series=%s failed: %s", series_slug, exc
+        )
+        return []
+    rows: list[dict] = []
+    for ev in events or []:
+        rows.extend(ev.get("markets") or [])
+    return rows
+
+
+async def list_series_legs(*, timeout_sec: float = 8.0, concurrency: int = 4) -> list[dict]:
+    """Long-interval source: targeted Gamma /events?series_slug= queries for every
+    asset's 1h and 4h up/down series, flattened + deduped to legs.
+
+    One small (limit=10) query per series returns exactly that series' upcoming
+    markets, soonest-first — no /markets pagination, no row-budget luck. Queries
+    run with bounded concurrency; a per-series failure is skipped, not fatal."""
+    now = dt.datetime.now(dt.timezone.utc)
+    end_min = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    slugs = list(HOURLY_SERIES_SLUGS.values()) + list(FOUR_HOUR_SERIES_SLUGS.values())
+
+    timeout = aiohttp.ClientTimeout(total=timeout_sec)
+    sem = asyncio.Semaphore(concurrency)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async def _one(slug: str) -> list[dict]:
+            async with sem:
+                return await _get_events_series(session, slug, end_min)
+
+        results = await asyncio.gather(*(_one(s) for s in slugs))
+
+    rows: list[dict] = [raw for series_rows in results for raw in series_rows]
+    return _rows_to_legs(rows)

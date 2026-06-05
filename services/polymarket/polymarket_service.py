@@ -19,7 +19,11 @@ import redis.asyncio as aioredis
 
 from config.settings import settings
 from core.base_service import BaseService
-from services.polymarket.gamma_discovery import list_active_legs
+from services.polymarket.gamma_discovery import (
+    list_active_legs,
+    list_series_legs,
+    merge_legs_dedup,
+)
 from services.polymarket.market_feed import PolymarketMarketFeed
 
 
@@ -29,11 +33,19 @@ class PolymarketService(BaseService):
     def __init__(self, config: dict):
         super().__init__(service_name="Polymarket", config=config)
         self.DISCOVERY_INTERVAL_SEC = config.get('discovery_interval_sec', 5)
+        # 1h/4h markets change hourly, so their targeted /events series queries
+        # refresh on a slower cadence than the 5s short-interval enumeration.
+        self.LONG_REFRESH_INTERVAL_SEC = config.get('long_refresh_interval_sec', 60)
         self.CATALOG_TTL_SEC = config.get('catalog_ttl_sec', 60)
         self.REDIS_TTL = config.get('redis_ttl', 60)
         self._redis: aioredis.Redis | None = None
         self._tasks: list[asyncio.Task] = []
         self._stopped = False
+        # Cached long-interval (1h/4h) legs, refreshed every LONG_REFRESH_INTERVAL_SEC
+        # and merged into every 5s catalog write. Survives a transient series-query
+        # failure (last good set is reused).
+        self._long_legs: list[dict] = []
+        self._last_long_refresh: float = 0.0
 
     def _redis_url(self) -> str:
         pwd = f":{settings.REDIS_PASSWORD}@" if settings.REDIS_PASSWORD else ""
@@ -72,12 +84,51 @@ class PolymarketService(BaseService):
             self._redis = None
         self.logger.info("Polymarket service stopped")
 
+    def _monotonic(self) -> float:
+        """Monotonic clock for the long-refresh gate (patchable in tests)."""
+        return asyncio.get_running_loop().time()
+
+    async def _refresh_long_legs_if_due(self) -> None:
+        """Refresh the cached 1h/4h series legs when LONG_REFRESH_INTERVAL_SEC has
+        elapsed (and on the very first tick). The due-time advances even on failure
+        so a persistent series outage can't turn into a 5s retry storm — the last
+        good set keeps serving until the next window."""
+        now = self._monotonic()
+        due = (
+            self._last_long_refresh == 0.0
+            or (now - self._last_long_refresh) >= self.LONG_REFRESH_INTERVAL_SEC
+        )
+        if not due:
+            return
+        self._last_long_refresh = now
+        try:
+            self._long_legs = await list_series_legs()
+        except Exception as exc:  # noqa: BLE001 — keep serving the cached set
+            self.logger.warning(
+                "pm_discovery: long-interval series refresh failed "
+                "(serving cached %d legs): %s",
+                len(self._long_legs),
+                exc,
+            )
+
+    async def _discovery_tick(self) -> None:
+        """One discovery cycle: fetch short-interval legs fresh, refresh long-interval
+        legs if due, merge (dedup by condition_id), write the catalog."""
+        short_legs = await list_active_legs()
+        await self._refresh_long_legs_if_due()
+        legs = merge_legs_dedup(short_legs, self._long_legs)
+        await self._write_catalog(legs)
+        self.logger.info(
+            "pm_discovery: wrote %d legs to catalog (%d short + %d long)",
+            len(legs),
+            len(short_legs),
+            len(self._long_legs),
+        )
+
     async def _discovery_loop(self):
         while not self._shutdown_event.is_set():
             try:
-                legs = await list_active_legs()
-                await self._write_catalog(legs)
-                self.logger.info("pm_discovery: wrote %d legs to catalog", len(legs))
+                await self._discovery_tick()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 — loop must survive
