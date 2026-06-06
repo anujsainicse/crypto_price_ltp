@@ -105,7 +105,8 @@ class PolymarketMarketFeed:
         _books         : {token_id: {"bids": [...], "asks": [...]}}
     """
 
-    def __init__(self, redis: Any, logger, redis_ttl: int = 60, trades_limit: int = 50) -> None:
+    def __init__(self, redis: Any, logger, redis_ttl: int = 60, trades_limit: int = 50,
+                 scan_interval: int = _REGISTRY_REFRESH_INTERVAL) -> None:
         self._redis = redis
         self._log = logger
         # Per-key TTL (seconds) — matches the repo-wide 60s contract so stale
@@ -113,6 +114,9 @@ class PolymarketMarketFeed:
         self._ttl = redis_ttl
         # Max recent public trades retained per token (newest-capped deque).
         self._trades_limit = trades_limit
+        # How often the background loop re-scans the watch-set (seconds). Lower
+        # than the legacy 30s so a freshly-selected market lights up within ~5s.
+        self._scan_interval = scan_interval
         # token_id → ticker (e.g. "BTC-UD:UP")
         self._token_ticker: Dict[str, str] = {}
         # In-memory book per token_id
@@ -160,9 +164,9 @@ class PolymarketMarketFeed:
         Connect once, subscribe, and read until close or _stop.
 
         Also spawns a background registry-refresh task that re-scans Redis
-        every _REGISTRY_REFRESH_INTERVAL seconds and reconnects if new tokens
-        are discovered (new tokens require a fresh WS — Polymarket's market
-        channel rejects re-subscribes that add assets).
+        every self._scan_interval seconds (config: watch_scan_interval_sec) and
+        reconnects if new tokens are discovered (new tokens require a fresh WS —
+        Polymarket's market channel rejects re-subscribes that add assets).
         """
         # Ensure we have an up-to-date token→ticker map before connecting
         await self._refresh_registry()
@@ -175,9 +179,9 @@ class PolymarketMarketFeed:
         if not token_ids:
             self._log.debug(
                 "[PolymarketFeed] No registered markets yet; sleeping %ds before retry",
-                _REGISTRY_REFRESH_INTERVAL,
+                self._scan_interval,
             )
-            await asyncio.sleep(_REGISTRY_REFRESH_INTERVAL)
+            await asyncio.sleep(self._scan_interval)
             return
 
         sub_msg = json.dumps({"type": "MARKET", "assets_ids": token_ids})
@@ -197,7 +201,7 @@ class PolymarketMarketFeed:
 
             async def _refresh_loop():
                 while not self._stop.is_set():
-                    await asyncio.sleep(_REGISTRY_REFRESH_INTERVAL)
+                    await asyncio.sleep(self._scan_interval)
                     old_tokens = set(self._token_ticker.keys())
                     await self._refresh_registry()
                     if set(self._token_ticker.keys()) != old_tokens:

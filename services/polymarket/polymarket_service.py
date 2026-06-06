@@ -38,6 +38,8 @@ class PolymarketService(BaseService):
         self.LONG_REFRESH_INTERVAL_SEC = config.get('long_refresh_interval_sec', 60)
         self.CATALOG_TTL_SEC = config.get('catalog_ttl_sec', 60)
         self.REDIS_TTL = config.get('redis_ttl', 60)
+        self.TRADES_LIMIT = config.get('trades_limit', 50)
+        self.WATCH_SCAN_INTERVAL_SEC = config.get('watch_scan_interval_sec', 5)
         self._redis: aioredis.Redis | None = None
         self._tasks: list[asyncio.Task] = []
         self._stopped = False
@@ -57,7 +59,11 @@ class PolymarketService(BaseService):
             self._redis = aioredis.from_url(self._redis_url(), decode_responses=True)
         self.logger.info("Polymarket service starting (discovery + feed)")
         feed = PolymarketMarketFeed(
-            redis=self._redis, logger=self.logger, redis_ttl=self.REDIS_TTL
+            redis=self._redis,
+            logger=self.logger,
+            redis_ttl=self.REDIS_TTL,
+            trades_limit=self.TRADES_LIMIT,
+            scan_interval=self.WATCH_SCAN_INTERVAL_SEC,
         )
         self._tasks = [
             asyncio.create_task(self._discovery_loop(), name="pm_discovery"),
