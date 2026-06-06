@@ -477,3 +477,7 @@ polymarket:
       trades_limit: 50
       # how often the feed re-scans polymarket:watch:* for newly-selected markets
       watch_scan_interval_sec: 5
+      pricehistory_enabled: true
+      pricehistory_interval_sec: 20
+      pricehistory_clob_interval: "max"
+      pricehistory_fidelity: 1
