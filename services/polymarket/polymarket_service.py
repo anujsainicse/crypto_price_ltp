@@ -25,6 +25,7 @@ from services.polymarket.gamma_discovery import (
     merge_legs_dedup,
 )
 from services.polymarket.market_feed import PolymarketMarketFeed
+from services.polymarket.price_history import PolymarketPriceHistory
 
 
 class PolymarketService(BaseService):
@@ -41,6 +42,10 @@ class PolymarketService(BaseService):
         self.TRADES_ENABLED = config.get('trades_enabled', True)
         self.TRADES_LIMIT = config.get('trades_limit', 50)
         self.WATCH_SCAN_INTERVAL_SEC = config.get('watch_scan_interval_sec', 5)
+        self.PRICEHISTORY_ENABLED = config.get('pricehistory_enabled', True)
+        self.PRICEHISTORY_INTERVAL_SEC = config.get('pricehistory_interval_sec', 20)
+        self.PRICEHISTORY_CLOB_INTERVAL = config.get('pricehistory_clob_interval', 'max')
+        self.PRICEHISTORY_FIDELITY = config.get('pricehistory_fidelity', 1)
         self._redis: aioredis.Redis | None = None
         self._tasks: list[asyncio.Task] = []
         self._stopped = False
@@ -71,6 +76,18 @@ class PolymarketService(BaseService):
             asyncio.create_task(self._discovery_loop(), name="pm_discovery"),
             asyncio.create_task(feed.run_forever(), name="pm_feed"),
         ]
+        if self.PRICEHISTORY_ENABLED:
+            price_history = PolymarketPriceHistory(
+                redis=self._redis,
+                logger=self.logger,
+                interval_sec=self.PRICEHISTORY_INTERVAL_SEC,
+                clob_interval=self.PRICEHISTORY_CLOB_INTERVAL,
+                fidelity=self.PRICEHISTORY_FIDELITY,
+                ttl=self.REDIS_TTL,
+            )
+            self._tasks.append(
+                asyncio.create_task(price_history.run_forever(), name="pm_pricehistory")
+            )
         await self._shutdown_event.wait()
 
     async def stop(self):
