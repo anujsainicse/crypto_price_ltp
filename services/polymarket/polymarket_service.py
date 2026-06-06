@@ -38,6 +38,7 @@ class PolymarketService(BaseService):
         self.LONG_REFRESH_INTERVAL_SEC = config.get('long_refresh_interval_sec', 60)
         self.CATALOG_TTL_SEC = config.get('catalog_ttl_sec', 60)
         self.REDIS_TTL = config.get('redis_ttl', 60)
+        self.TRADES_ENABLED = config.get('trades_enabled', True)
         self.TRADES_LIMIT = config.get('trades_limit', 50)
         self.WATCH_SCAN_INTERVAL_SEC = config.get('watch_scan_interval_sec', 5)
         self._redis: aioredis.Redis | None = None
@@ -62,6 +63,7 @@ class PolymarketService(BaseService):
             redis=self._redis,
             logger=self.logger,
             redis_ttl=self.REDIS_TTL,
+            trades_enabled=self.TRADES_ENABLED,
             trades_limit=self.TRADES_LIMIT,
             scan_interval=self.WATCH_SCAN_INTERVAL_SEC,
         )
@@ -124,11 +126,14 @@ class PolymarketService(BaseService):
         await self._refresh_long_legs_if_due()
         legs = merge_legs_dedup(short_legs, self._long_legs)
         await self._write_catalog(legs)
+        # merge_legs_dedup keeps every short leg and appends only non-duplicate
+        # long legs, so the long count actually written is total - short (NOT the
+        # raw len(self._long_legs), which double-counts markets present in both).
         self.logger.info(
             "pm_discovery: wrote %d legs to catalog (%d short + %d long)",
             len(legs),
             len(short_legs),
-            len(self._long_legs),
+            len(legs) - len(short_legs),
         )
 
     async def _discovery_loop(self):

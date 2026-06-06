@@ -6,6 +6,7 @@ instead — the /events endpoint honours series_slug while /markets ignores it
 (verified live 2026-06-05). Ported from polybot's market_discovery.
 """
 import asyncio
+import json
 import unittest.mock as mock
 
 import aiohttp
@@ -161,3 +162,66 @@ def test_merge_legs_dedup_prefers_short_and_drops_duplicate_markets():
     assert cids.count("0xC") == 2  # long's C pair added
     # short legs come first (priority)
     assert cids[:4] == ["0xA", "0xA", "0xB", "0xB"]
+
+
+class _RaisingCtx:
+    """Async context manager whose __aenter__ raises — simulates a request that
+    fails before a response object exists (e.g. aiohttp's total ClientTimeout,
+    which raises a plain asyncio.TimeoutError, NOT an aiohttp.ClientError)."""
+    def __init__(self, exc):
+        self._exc = exc
+
+    async def __aenter__(self):
+        raise self._exc
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _BadJsonResp(_FakeResp):
+    """HTTP 200 whose body is not valid JSON — resp.json() raises
+    json.JSONDecodeError (a ValueError subclass, NOT an aiohttp.ClientError)."""
+    async def json(self):
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+
+def test_list_series_legs_isolates_per_series_timeout():
+    """A total-timeout (asyncio.TimeoutError) on one series must not abort the
+    whole long-interval refresh — the other series' legs must still come back."""
+    good = _binary_market("0xbtc1h", "bitcoin-up-or-down-june-5-2026-7am-et")
+
+    def handler(url, params):
+        if params.get("series_slug") == "btc-up-or-down-hourly":
+            return _FakeResp(200, [{"markets": [good]}])
+        return _RaisingCtx(asyncio.TimeoutError())  # every other series times out
+
+    with mock.patch.object(
+        gd, "HOURLY_SERIES_SLUGS",
+        {"BTC": "btc-up-or-down-hourly", "ETH": "eth-up-or-down-hourly"},
+    ), mock.patch.object(
+        gd, "FOUR_HOUR_SERIES_SLUGS", {"BTC": "btc-up-or-down-4h"},
+    ), mock.patch.object(gd.aiohttp, "ClientSession", _session_factory(handler)):
+        legs = asyncio.run(gd.list_series_legs())
+
+    assert {leg["slug"] for leg in legs} == {"bitcoin-up-or-down-june-5-2026-7am-et"}
+
+
+def test_list_series_legs_isolates_per_series_bad_json():
+    """A malformed-JSON HTTP 200 (json.JSONDecodeError) on one series must not
+    abort the whole long-interval refresh."""
+    good = _binary_market("0xbtc1h", "bitcoin-up-or-down-june-5-2026-7am-et")
+
+    def handler(url, params):
+        if params.get("series_slug") == "btc-up-or-down-hourly":
+            return _FakeResp(200, [{"markets": [good]}])
+        return _BadJsonResp(200, None)  # every other series returns junk
+
+    with mock.patch.object(
+        gd, "HOURLY_SERIES_SLUGS",
+        {"BTC": "btc-up-or-down-hourly", "ETH": "eth-up-or-down-hourly"},
+    ), mock.patch.object(
+        gd, "FOUR_HOUR_SERIES_SLUGS", {"BTC": "btc-up-or-down-4h"},
+    ), mock.patch.object(gd.aiohttp, "ClientSession", _session_factory(handler)):
+        legs = asyncio.run(gd.list_series_legs())
+
+    assert {leg["slug"] for leg in legs} == {"bitcoin-up-or-down-june-5-2026-7am-et"}

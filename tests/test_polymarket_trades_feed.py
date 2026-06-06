@@ -32,9 +32,10 @@ class _FakeAsyncRedis:
                 yield k
 
 
-def _feed():
+def _feed(trades_enabled=True):
     return PolymarketMarketFeed(
-        redis=_FakeAsyncRedis(), logger=logging.getLogger("t"), redis_ttl=60, trades_limit=3
+        redis=_FakeAsyncRedis(), logger=logging.getLogger("t"), redis_ttl=60,
+        trades_limit=3, trades_enabled=trades_enabled,
     )
 
 
@@ -55,7 +56,9 @@ async def test_last_trade_price_writes_trades_hash():
 
     hashed = feed._redis.hashes["polymarket_trades:PMABC:UP"]
     trades = json.loads(hashed["trades"])
-    assert trades[0] == {"p": 0.456, "q": 219.21, "s": "BUY", "t": 1750428146322,
+    # Side is normalised to Title-Case "Buy"/"Sell" — the repo-wide trades schema
+    # (CLAUDE.md + every other producer: bybit/binance/delta/hyperliquid).
+    assert trades[0] == {"p": 0.456, "q": 219.21, "s": "Buy", "t": 1750428146322,
                          "id": "1750428146322-0xtok"}
     assert hashed["count"] == "1"
     assert hashed["original_symbol"] == "PMABC:UP"
@@ -123,3 +126,43 @@ async def test_refresh_registry_scans_watch_keys():
 
     assert feed._token_ticker == {"0xup": "PMABC:UP", "0xdown": "PMABC:DOWN"}
     assert "0xold" not in feed._token_ticker
+
+
+@pytest.mark.asyncio
+async def test_sell_side_normalised_to_title_case():
+    feed = _feed()
+    feed._token_ticker = {"0xtok": "PMABC:DOWN"}
+    await feed._handle_raw(json.dumps({
+        "event_type": "last_trade_price", "asset_id": "0xtok",
+        "price": "0.5", "side": "sell", "size": "10", "timestamp": "1000",
+    }))
+    trades = json.loads(feed._redis.hashes["polymarket_trades:PMABC:DOWN"]["trades"])
+    assert trades[0]["s"] == "Sell"
+
+
+@pytest.mark.asyncio
+async def test_trades_disabled_skips_write():
+    """trades_enabled=False must suppress all polymarket_trades:* writes — the
+    config knob is honoured, matching every other service in the repo."""
+    feed = _feed(trades_enabled=False)
+    feed._token_ticker = {"0xtok": "PMABC:UP"}
+    await feed._handle_raw(json.dumps({
+        "event_type": "last_trade_price", "asset_id": "0xtok",
+        "price": "0.5", "side": "BUY", "size": "5", "timestamp": "1000",
+    }))
+    assert "polymarket_trades:PMABC:UP" not in feed._redis.hashes
+    assert not feed._trades["0xtok"]  # nothing buffered either
+
+
+@pytest.mark.asyncio
+async def test_empty_watch_set_warns_for_standalone_deploy_visibility(caplog):
+    """An empty watch-set (e.g. standalone deploy with no scalper backend writing
+    polymarket:watch:*) must surface a WARNING, not a silent DEBUG line."""
+    feed = _feed()
+    feed._scan_interval = 0  # don't actually sleep
+    with caplog.at_level(logging.WARNING, logger="t"):
+        await feed.run_once()
+    assert any(
+        "No registered markets" in r.getMessage() and r.levelno == logging.WARNING
+        for r in caplog.records
+    )

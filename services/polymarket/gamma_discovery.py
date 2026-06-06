@@ -333,8 +333,10 @@ async def _get_events_series(
 
     The /events endpoint honours `series_slug` (unlike /markets), so this returns
     exactly the upcoming markets of `series_slug`, soonest-first. Each event wraps
-    one inner market. Returns [] on any HTTP error so one bad series can't abort
-    the whole long-interval refresh."""
+    one inner market. Returns [] on ANY per-series failure so one bad series can't
+    abort the whole long-interval refresh — including the total ClientTimeout
+    (which raises a plain asyncio.TimeoutError, NOT an aiohttp.ClientError) and a
+    malformed-JSON 200 body (json.JSONDecodeError, a ValueError subclass)."""
     params = {
         "closed": "false", "active": "true", "limit": 10,
         "order": "endDate", "ascending": "true",
@@ -344,7 +346,7 @@ async def _get_events_series(
         async with session.get(f"{GAMMA_HOST}/events", params=params) as resp:
             resp.raise_for_status()
             events = await resp.json()
-    except aiohttp.ClientError as exc:
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
         logger.warning(
             "pm_discovery: Gamma /events series=%s failed: %s", series_slug, exc
         )
@@ -361,7 +363,9 @@ async def list_series_legs(*, timeout_sec: float = 8.0, concurrency: int = 4) ->
 
     One small (limit=10) query per series returns exactly that series' upcoming
     markets, soonest-first — no /markets pagination, no row-budget luck. Queries
-    run with bounded concurrency; a per-series failure is skipped, not fatal."""
+    run with bounded concurrency; a per-series failure is skipped, not fatal.
+    gather(return_exceptions=True) is belt-and-suspenders: even an exception type
+    _get_events_series does not catch can't abort the other series' results."""
     now = dt.datetime.now(dt.timezone.utc)
     end_min = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     slugs = list(HOURLY_SERIES_SLUGS.values()) + list(FOUR_HOUR_SERIES_SLUGS.values())
@@ -373,7 +377,14 @@ async def list_series_legs(*, timeout_sec: float = 8.0, concurrency: int = 4) ->
             async with sem:
                 return await _get_events_series(session, slug, end_min)
 
-        results = await asyncio.gather(*(_one(s) for s in slugs))
+        results = await asyncio.gather(
+            *(_one(s) for s in slugs), return_exceptions=True
+        )
 
-    rows: list[dict] = [raw for series_rows in results for raw in series_rows]
+    rows: list[dict] = []
+    for series_rows in results:
+        if isinstance(series_rows, BaseException):
+            logger.warning("pm_discovery: series query raised: %s", series_rows)
+            continue
+        rows.extend(series_rows)
     return _rows_to_legs(rows)

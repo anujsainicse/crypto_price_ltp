@@ -106,12 +106,17 @@ class PolymarketMarketFeed:
     """
 
     def __init__(self, redis: Any, logger, redis_ttl: int = 60, trades_limit: int = 50,
-                 scan_interval: int = _REGISTRY_REFRESH_INTERVAL) -> None:
+                 scan_interval: int = _REGISTRY_REFRESH_INTERVAL,
+                 trades_enabled: bool = True) -> None:
         self._redis = redis
         self._log = logger
         # Per-key TTL (seconds) — matches the repo-wide 60s contract so stale
         # data for resolved/delisted markets ages out instead of lingering.
         self._ttl = redis_ttl
+        # Whether last_trade_price events are recorded to polymarket_trades:*
+        # (config: trades_enabled). Gated like every other service so an operator
+        # can actually turn the trade feed off.
+        self._trades_enabled = trades_enabled
         # Max recent public trades retained per token (newest-capped deque).
         self._trades_limit = trades_limit
         # How often the background loop re-scans the watch-set (seconds). Lower
@@ -177,8 +182,12 @@ class PolymarketMarketFeed:
         # list is pointless. Sleep one refresh interval and let run_forever
         # retry once markets get registered.
         if not token_ids:
-            self._log.debug(
-                "[PolymarketFeed] No registered markets yet; sleeping %ds before retry",
+            # WARNING (not DEBUG): polymarket:watch:* is written only by the
+            # external scalper backend, so an empty set on a standalone deploy is
+            # an operator-visible misconfiguration that should fail loudly.
+            self._log.warning(
+                "[PolymarketFeed] No registered markets in polymarket:watch:*; "
+                "sleeping %ds before retry (is the backend writing the watch-set?)",
                 self._scan_interval,
             )
             await asyncio.sleep(self._scan_interval)
@@ -407,6 +416,8 @@ class PolymarketMarketFeed:
 
         Shape: {"asset_id", "price", "side": "BUY"|"SELL", "size", "timestamp"(ms)}
         """
+        if not self._trades_enabled:
+            return  # operator disabled the trade feed (config: trades_enabled)
         token_id = ev.get("asset_id")
         if not token_id:
             return
@@ -419,9 +430,13 @@ class PolymarketMarketFeed:
             ts = int(ev["timestamp"])
         except (KeyError, TypeError, ValueError):
             return
-        side = (ev.get("side") or "").upper()
-        if size <= 0 or side not in ("BUY", "SELL"):
+        side_raw = (ev.get("side") or "").upper()
+        if size <= 0 or side_raw not in ("BUY", "SELL"):
             return  # not a meaningful trade print — drop malformed/empty events
+        # Normalise to Title-Case "Buy"/"Sell": the repo-wide trades schema
+        # (CLAUDE.md + every other producer). Downstream side-matching on the
+        # scalper side compares against "Buy"/"Sell".
+        side = "Buy" if side_raw == "BUY" else "Sell"
         self._trades[token_id].append(
             {"p": price, "q": size, "s": side, "t": ts, "id": f"{ts}-{token_id}"}
         )
