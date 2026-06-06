@@ -420,6 +420,8 @@ class PolymarketMarketFeed:
         except (KeyError, TypeError, ValueError):
             return
         side = (ev.get("side") or "").upper()
+        if size <= 0 or side not in ("BUY", "SELL"):
+            return  # not a meaningful trade print — drop malformed/empty events
         self._trades[token_id].append(
             {"p": price, "q": size, "s": side, "t": ts, "id": f"{ts}-{token_id}"}
         )

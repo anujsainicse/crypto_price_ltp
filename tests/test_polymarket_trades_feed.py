@@ -69,10 +69,29 @@ async def test_trades_capped_and_newest_first():
     for i in range(4):
         await feed._handle_raw(json.dumps({
             "event_type": "last_trade_price", "asset_id": "0xtok",
-            "price": "0.5", "side": "SELL", "size": str(i), "timestamp": str(1000 + i),
+            # size = i + 1 so all four are valid (>0); the deque cap, not the
+            # size guard, is what drops the oldest.
+            "price": "0.5", "side": "SELL", "size": str(i + 1), "timestamp": str(1000 + i),
         }))
     trades = json.loads(feed._redis.hashes["polymarket_trades:PMABC:UP"]["trades"])
     assert [t["t"] for t in trades] == [1003, 1002, 1001]  # newest first, oldest dropped
+
+
+@pytest.mark.asyncio
+async def test_zero_size_or_bad_side_trade_dropped():
+    feed = _feed()
+    feed._token_ticker = {"0xtok": "PMABC:UP"}
+    # size 0 → not a real trade print
+    await feed._handle_raw(json.dumps({
+        "event_type": "last_trade_price", "asset_id": "0xtok",
+        "price": "0.5", "side": "BUY", "size": "0", "timestamp": "1000",
+    }))
+    # missing/invalid side
+    await feed._handle_raw(json.dumps({
+        "event_type": "last_trade_price", "asset_id": "0xtok",
+        "price": "0.5", "size": "5", "timestamp": "1001",
+    }))
+    assert "polymarket_trades:PMABC:UP" not in feed._redis.hashes
 
 
 @pytest.mark.asyncio
