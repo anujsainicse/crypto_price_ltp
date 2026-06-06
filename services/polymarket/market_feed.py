@@ -51,7 +51,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -105,17 +105,23 @@ class PolymarketMarketFeed:
         _books         : {token_id: {"bids": [...], "asks": [...]}}
     """
 
-    def __init__(self, redis: Any, logger, redis_ttl: int = 60) -> None:
+    def __init__(self, redis: Any, logger, redis_ttl: int = 60, trades_limit: int = 50) -> None:
         self._redis = redis
         self._log = logger
         # Per-key TTL (seconds) — matches the repo-wide 60s contract so stale
         # data for resolved/delisted markets ages out instead of lingering.
         self._ttl = redis_ttl
+        # Max recent public trades retained per token (newest-capped deque).
+        self._trades_limit = trades_limit
         # token_id → ticker (e.g. "BTC-UD:UP")
         self._token_ticker: Dict[str, str] = {}
         # In-memory book per token_id
         self._books: Dict[str, Dict[str, List[Level]]] = defaultdict(
             lambda: {"bids": [], "asks": []}
+        )
+        # Recent public trades per token_id (oldest→newest; capped).
+        self._trades: Dict[str, deque] = defaultdict(
+            lambda: deque(maxlen=self._trades_limit)
         )
         self._stop = asyncio.Event()
 
@@ -290,6 +296,8 @@ class PolymarketMarketFeed:
             if et == "price_change":
                 for ch in ev.get("price_changes") or []:
                     await self._handle_price_change(ch)
+            elif et == "last_trade_price":
+                await self._handle_last_trade_price(ev)
             else:
                 await self._handle_event(ev)
 
@@ -388,6 +396,46 @@ class PolymarketMarketFeed:
             best_ask = asks[0][0]
 
         await self._write_redis(ticker, bids, asks, best_bid, best_ask)
+
+    async def _handle_last_trade_price(self, ev: Dict[str, Any]) -> None:
+        """Handle a public last_trade_price event → append to the per-token tape
+        and write polymarket_trades:<TICKER> (same shape as bybit_spot_trades:*).
+
+        Shape: {"asset_id", "price", "side": "BUY"|"SELL", "size", "timestamp"(ms)}
+        """
+        token_id = ev.get("asset_id")
+        if not token_id:
+            return
+        ticker = self._token_ticker.get(token_id)
+        if not ticker:
+            return  # not in the feed set — ignore silently
+        try:
+            price = float(ev["price"])
+            size = float(ev["size"])
+            ts = int(ev["timestamp"])
+        except (KeyError, TypeError, ValueError):
+            return
+        side = (ev.get("side") or "").upper()
+        self._trades[token_id].append(
+            {"p": price, "q": size, "s": side, "t": ts, "id": f"{ts}-{token_id}"}
+        )
+        await self._write_trades_redis(ticker, list(self._trades[token_id]))
+
+    async def _write_trades_redis(self, ticker: str, trades: List[Dict[str, Any]]) -> None:
+        """Write the trades HASH. Newest-first so the backend's trades[:limit]
+        returns the most recent trades."""
+        mapping = {
+            "trades": json.dumps(list(reversed(trades))),
+            "count": str(len(trades)),
+            "timestamp": str(int(time.time())),
+            "original_symbol": ticker,
+        }
+        key = f"polymarket_trades:{ticker}"
+        try:
+            await self._redis.hset(key, mapping=mapping)
+            await self._redis.expire(key, self._ttl)
+        except Exception as e:
+            self._log.error("[PolymarketFeed] Trades write error for %s: %s", ticker, e)
 
     # ------------------------------------------------------------------
     # Redis writes
