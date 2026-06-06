@@ -93,3 +93,19 @@ async def test_fetch_failure_skips_write(monkeypatch):
     monkeypatch.setattr(ph, "_fetch_history", fake_fetch)
     await ph.run_once()
     assert "polymarket_pricehistory:PMABC:UP" not in r.hashes
+
+
+@pytest.mark.asyncio
+async def test_empty_history_skips_write(monkeypatch):
+    r = _FakeAsyncRedis()
+    r.kv["polymarket:watch:PMABC:UP"] = json.dumps(
+        {"token_id": "0xup", "condition_id": "0xc", "ticker": "PMABC:UP"}
+    )
+    ph = _ph(r)
+
+    async def fake_fetch(session, token_id):
+        return []  # HTTP 200 but empty series — keep last good
+
+    monkeypatch.setattr(ph, "_fetch_history", fake_fetch)
+    await ph.run_once()
+    assert "polymarket_pricehistory:PMABC:UP" not in r.hashes

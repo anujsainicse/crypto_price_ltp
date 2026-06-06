@@ -61,7 +61,8 @@ class PolymarketPriceHistory:
             return
         async with aiohttp.ClientSession() as session:
             await asyncio.gather(
-                *[self._fetch_and_write(session, tid, tk) for tid, tk in pairs]
+                *[self._fetch_and_write(session, tid, tk) for tid, tk in pairs],
+                return_exceptions=True,
             )
 
     async def _scan_watch(self) -> List[Tuple[str, str]]:
@@ -89,8 +90,8 @@ class PolymarketPriceHistory:
     async def _fetch_and_write(self, session, token_id: str, ticker: str) -> None:
         async with self._sem:
             history = await self._fetch_history(session, token_id)
-        if history is None:
-            return  # fetch failed — keep last good (TTL) rather than blanking
+        if not history:
+            return  # fetch failed or empty — keep last good (TTL) rather than blanking
         await self._write(ticker, history)
 
     async def _fetch_history(self, session, token_id: str) -> Optional[List[dict]]:
