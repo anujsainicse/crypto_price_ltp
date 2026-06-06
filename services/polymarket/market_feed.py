@@ -51,7 +51,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -105,17 +105,32 @@ class PolymarketMarketFeed:
         _books         : {token_id: {"bids": [...], "asks": [...]}}
     """
 
-    def __init__(self, redis: Any, logger, redis_ttl: int = 60) -> None:
+    def __init__(self, redis: Any, logger, redis_ttl: int = 60, trades_limit: int = 50,
+                 scan_interval: int = _REGISTRY_REFRESH_INTERVAL,
+                 trades_enabled: bool = True) -> None:
         self._redis = redis
         self._log = logger
         # Per-key TTL (seconds) — matches the repo-wide 60s contract so stale
         # data for resolved/delisted markets ages out instead of lingering.
         self._ttl = redis_ttl
+        # Whether last_trade_price events are recorded to polymarket_trades:*
+        # (config: trades_enabled). Gated like every other service so an operator
+        # can actually turn the trade feed off.
+        self._trades_enabled = trades_enabled
+        # Max recent public trades retained per token (newest-capped deque).
+        self._trades_limit = trades_limit
+        # How often the background loop re-scans the watch-set (seconds). Lower
+        # than the legacy 30s so a freshly-selected market lights up within ~5s.
+        self._scan_interval = scan_interval
         # token_id → ticker (e.g. "BTC-UD:UP")
         self._token_ticker: Dict[str, str] = {}
         # In-memory book per token_id
         self._books: Dict[str, Dict[str, List[Level]]] = defaultdict(
             lambda: {"bids": [], "asks": []}
+        )
+        # Recent public trades per token_id (oldest→newest; capped).
+        self._trades: Dict[str, deque] = defaultdict(
+            lambda: deque(maxlen=self._trades_limit)
         )
         self._stop = asyncio.Event()
 
@@ -154,9 +169,9 @@ class PolymarketMarketFeed:
         Connect once, subscribe, and read until close or _stop.
 
         Also spawns a background registry-refresh task that re-scans Redis
-        every _REGISTRY_REFRESH_INTERVAL seconds and reconnects if new tokens
-        are discovered (new tokens require a fresh WS — Polymarket's market
-        channel rejects re-subscribes that add assets).
+        every self._scan_interval seconds (config: watch_scan_interval_sec) and
+        reconnects if new tokens are discovered (new tokens require a fresh WS —
+        Polymarket's market channel rejects re-subscribes that add assets).
         """
         # Ensure we have an up-to-date token→ticker map before connecting
         await self._refresh_registry()
@@ -167,11 +182,15 @@ class PolymarketMarketFeed:
         # list is pointless. Sleep one refresh interval and let run_forever
         # retry once markets get registered.
         if not token_ids:
-            self._log.debug(
-                "[PolymarketFeed] No registered markets yet; sleeping %ds before retry",
-                _REGISTRY_REFRESH_INTERVAL,
+            # WARNING (not DEBUG): polymarket:watch:* is written only by the
+            # external scalper backend, so an empty set on a standalone deploy is
+            # an operator-visible misconfiguration that should fail loudly.
+            self._log.warning(
+                "[PolymarketFeed] No registered markets in polymarket:watch:*; "
+                "sleeping %ds before retry (is the backend writing the watch-set?)",
+                self._scan_interval,
             )
-            await asyncio.sleep(_REGISTRY_REFRESH_INTERVAL)
+            await asyncio.sleep(self._scan_interval)
             return
 
         sub_msg = json.dumps({"type": "MARKET", "assets_ids": token_ids})
@@ -191,7 +210,7 @@ class PolymarketMarketFeed:
 
             async def _refresh_loop():
                 while not self._stop.is_set():
-                    await asyncio.sleep(_REGISTRY_REFRESH_INTERVAL)
+                    await asyncio.sleep(self._scan_interval)
                     old_tokens = set(self._token_ticker.keys())
                     await self._refresh_registry()
                     if set(self._token_ticker.keys()) != old_tokens:
@@ -222,22 +241,22 @@ class PolymarketMarketFeed:
     # ------------------------------------------------------------------
 
     async def _refresh_registry(self) -> None:
-        """
-        Scan polymarket:market:* keys in Redis and rebuild token_id→ticker map.
+        """Rebuild token_id→ticker from the FEED SET: polymarket:watch:* keys.
 
-        Each key is polymarket:market:<TICKER>.
-        Each value is JSON: {"token_id": ..., "condition_id": ..., ...}.
+        These are written by the backend for (a) UI-selected markets (heartbeat)
+        and (b) active-bot markets. The durable polymarket:market:* registry is
+        intentionally NOT scanned here — it is resolution-only, and feeding every
+        ever-registered market is exactly what this design avoids.
+
+        Each watch value is JSON: {"token_id", "condition_id", "ticker"}.
         """
+        prefix = "polymarket:watch:"
         new_map: Dict[str, str] = {}
         try:
-            async for key in self._redis.scan_iter("polymarket:market:*"):
-                # Extract ticker from key suffix after last 'market:'
-                # Key format: polymarket:market:<TICKER>
-                # TICKER may itself contain colons (e.g. BTC-UD:UP)
-                prefix = "polymarket:market:"
+            async for key in self._redis.scan_iter("polymarket:watch:*"):
                 if not key.startswith(prefix):
                     continue
-                ticker = key[len(prefix):]
+                ticker_from_key = key[len(prefix):]
                 try:
                     raw_val = await self._redis.get(key)
                     if not raw_val:
@@ -245,19 +264,19 @@ class PolymarketMarketFeed:
                     data = json.loads(raw_val)
                     token_id = data.get("token_id")
                     if not token_id:
-                        self._log.debug("[PolymarketFeed] Key %s has no token_id, skipping", key)
+                        self._log.debug("[PolymarketFeed] watch key %s has no token_id", key)
                         continue
-                    new_map[token_id] = ticker
+                    new_map[token_id] = data.get("ticker") or ticker_from_key
                 except json.JSONDecodeError as e:
                     self._log.warning("[PolymarketFeed] JSON error for key %s: %s", key, e)
                 except Exception as e:
                     self._log.warning("[PolymarketFeed] Error processing key %s: %s", key, e)
         except Exception as e:
-            self._log.error("[PolymarketFeed] Registry scan failed: %s", e)
+            self._log.error("[PolymarketFeed] Watch scan failed: %s", e)
             return
 
         self._token_ticker = new_map
-        self._log.debug("[PolymarketFeed] Registry refreshed: %d tokens", len(new_map))
+        self._log.debug("[PolymarketFeed] Feed set refreshed: %d tokens", len(new_map))
 
     # ------------------------------------------------------------------
     # Message dispatch
@@ -290,6 +309,8 @@ class PolymarketMarketFeed:
             if et == "price_change":
                 for ch in ev.get("price_changes") or []:
                     await self._handle_price_change(ch)
+            elif et == "last_trade_price":
+                await self._handle_last_trade_price(ev)
             else:
                 await self._handle_event(ev)
 
@@ -388,6 +409,54 @@ class PolymarketMarketFeed:
             best_ask = asks[0][0]
 
         await self._write_redis(ticker, bids, asks, best_bid, best_ask)
+
+    async def _handle_last_trade_price(self, ev: Dict[str, Any]) -> None:
+        """Handle a public last_trade_price event → append to the per-token tape
+        and write polymarket_trades:<TICKER> (same shape as bybit_spot_trades:*).
+
+        Shape: {"asset_id", "price", "side": "BUY"|"SELL", "size", "timestamp"(ms)}
+        """
+        if not self._trades_enabled:
+            return  # operator disabled the trade feed (config: trades_enabled)
+        token_id = ev.get("asset_id")
+        if not token_id:
+            return
+        ticker = self._token_ticker.get(token_id)
+        if not ticker:
+            return  # not in the feed set — ignore silently
+        try:
+            price = float(ev["price"])
+            size = float(ev["size"])
+            ts = int(ev["timestamp"])
+        except (KeyError, TypeError, ValueError):
+            return
+        side_raw = (ev.get("side") or "").upper()
+        if size <= 0 or side_raw not in ("BUY", "SELL"):
+            return  # not a meaningful trade print — drop malformed/empty events
+        # Normalise to Title-Case "Buy"/"Sell": the repo-wide trades schema
+        # (CLAUDE.md + every other producer). Downstream side-matching on the
+        # scalper side compares against "Buy"/"Sell".
+        side = "Buy" if side_raw == "BUY" else "Sell"
+        self._trades[token_id].append(
+            {"p": price, "q": size, "s": side, "t": ts, "id": f"{ts}-{token_id}"}
+        )
+        await self._write_trades_redis(ticker, list(self._trades[token_id]))
+
+    async def _write_trades_redis(self, ticker: str, trades: List[Dict[str, Any]]) -> None:
+        """Write the trades HASH. Newest-first so the backend's trades[:limit]
+        returns the most recent trades."""
+        mapping = {
+            "trades": json.dumps(list(reversed(trades))),
+            "count": str(len(trades)),
+            "timestamp": str(int(time.time())),
+            "original_symbol": ticker,
+        }
+        key = f"polymarket_trades:{ticker}"
+        try:
+            await self._redis.hset(key, mapping=mapping)
+            await self._redis.expire(key, self._ttl)
+        except Exception as e:
+            self._log.error("[PolymarketFeed] Trades write error for %s: %s", ticker, e)
 
     # ------------------------------------------------------------------
     # Redis writes

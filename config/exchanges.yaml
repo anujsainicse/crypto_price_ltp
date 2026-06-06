@@ -166,7 +166,7 @@ delta:
   services:
     futures_ltp:
       enabled: true
-      auto_start: false
+      auto_start: true
       websocket_url: "wss://socket.india.delta.exchange"
       symbols:
         - "BTCUSD"
@@ -467,6 +467,13 @@ polymarket:
       enabled: true
       auto_start: true
       discovery_interval_sec: 5
+      # 1h/4h markets change hourly, so their targeted /events series queries
+      # refresh on this slower cadence (merged into every 5s catalog write).
+      long_refresh_interval_sec: 60
       catalog_ttl_sec: 60
       redis_prefix: "polymarket"
       redis_ttl: 60
+      trades_enabled: true
+      trades_limit: 50
+      # how often the feed re-scans polymarket:watch:* for newly-selected markets
+      watch_scan_interval_sec: 5
