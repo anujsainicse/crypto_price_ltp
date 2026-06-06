@@ -228,22 +228,22 @@ class PolymarketMarketFeed:
     # ------------------------------------------------------------------
 
     async def _refresh_registry(self) -> None:
-        """
-        Scan polymarket:market:* keys in Redis and rebuild token_id→ticker map.
+        """Rebuild token_id→ticker from the FEED SET: polymarket:watch:* keys.
 
-        Each key is polymarket:market:<TICKER>.
-        Each value is JSON: {"token_id": ..., "condition_id": ..., ...}.
+        These are written by the backend for (a) UI-selected markets (heartbeat)
+        and (b) active-bot markets. The durable polymarket:market:* registry is
+        intentionally NOT scanned here — it is resolution-only, and feeding every
+        ever-registered market is exactly what this design avoids.
+
+        Each watch value is JSON: {"token_id", "condition_id", "ticker"}.
         """
+        prefix = "polymarket:watch:"
         new_map: Dict[str, str] = {}
         try:
-            async for key in self._redis.scan_iter("polymarket:market:*"):
-                # Extract ticker from key suffix after last 'market:'
-                # Key format: polymarket:market:<TICKER>
-                # TICKER may itself contain colons (e.g. BTC-UD:UP)
-                prefix = "polymarket:market:"
+            async for key in self._redis.scan_iter("polymarket:watch:*"):
                 if not key.startswith(prefix):
                     continue
-                ticker = key[len(prefix):]
+                ticker_from_key = key[len(prefix):]
                 try:
                     raw_val = await self._redis.get(key)
                     if not raw_val:
@@ -251,19 +251,19 @@ class PolymarketMarketFeed:
                     data = json.loads(raw_val)
                     token_id = data.get("token_id")
                     if not token_id:
-                        self._log.debug("[PolymarketFeed] Key %s has no token_id, skipping", key)
+                        self._log.debug("[PolymarketFeed] watch key %s has no token_id", key)
                         continue
-                    new_map[token_id] = ticker
+                    new_map[token_id] = data.get("ticker") or ticker_from_key
                 except json.JSONDecodeError as e:
                     self._log.warning("[PolymarketFeed] JSON error for key %s: %s", key, e)
                 except Exception as e:
                     self._log.warning("[PolymarketFeed] Error processing key %s: %s", key, e)
         except Exception as e:
-            self._log.error("[PolymarketFeed] Registry scan failed: %s", e)
+            self._log.error("[PolymarketFeed] Watch scan failed: %s", e)
             return
 
         self._token_ticker = new_map
-        self._log.debug("[PolymarketFeed] Registry refreshed: %d tokens", len(new_map))
+        self._log.debug("[PolymarketFeed] Feed set refreshed: %d tokens", len(new_map))
 
     # ------------------------------------------------------------------
     # Message dispatch

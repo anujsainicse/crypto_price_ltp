@@ -84,3 +84,23 @@ async def test_unregistered_token_ignored():
         "price": "0.5", "side": "BUY", "size": "1", "timestamp": "1000",
     }))
     assert "polymarket_trades:PMABC:UP" not in feed._redis.hashes
+
+
+@pytest.mark.asyncio
+async def test_refresh_registry_scans_watch_keys():
+    feed = _feed()
+    feed._redis.kv["polymarket:watch:PMABC:UP"] = json.dumps(
+        {"token_id": "0xup", "condition_id": "0xc", "ticker": "PMABC:UP"}
+    )
+    feed._redis.kv["polymarket:watch:PMABC:DOWN"] = json.dumps(
+        {"token_id": "0xdown", "condition_id": "0xc", "ticker": "PMABC:DOWN"}
+    )
+    # a durable registry key must NOT be picked up by the feed anymore
+    feed._redis.kv["polymarket:market:PMOLD:UP"] = json.dumps(
+        {"token_id": "0xold", "condition_id": "0xo"}
+    )
+
+    await feed._refresh_registry()
+
+    assert feed._token_ticker == {"0xup": "PMABC:UP", "0xdown": "PMABC:DOWN"}
+    assert "0xold" not in feed._token_ticker
