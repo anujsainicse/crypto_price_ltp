@@ -39,6 +39,57 @@ def _ph(redis):
     )
 
 
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    async def json(self):
+        return self._payload
+
+
+class _FakeSession:
+    def __init__(self, payload):
+        self._payload = payload
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append({"url": url, "params": params})
+        return _FakeResp(self._payload)
+
+
+def test_default_clob_interval_is_bounded_not_max():
+    """`interval=max` makes the CLOB ignore `fidelity`, returning coarse ~10-min
+    points over the token's whole ~24h life — only ~1 point lands inside a 15m
+    market window. A bounded interval (`1d`) honors `fidelity=1` → dense 1-min
+    data covering every 5m/15m/1h/4h window. Default must not regress to `max`."""
+    ph = PolymarketPriceHistory(redis=_FakeAsyncRedis(), logger=logging.getLogger("t"))
+    assert ph._clob_interval == "1d"
+    assert ph._clob_interval != "max"
+
+
+@pytest.mark.asyncio
+async def test_fetch_history_sends_configured_interval_and_fidelity():
+    ph = PolymarketPriceHistory(
+        redis=_FakeAsyncRedis(), logger=logging.getLogger("t"),
+        clob_interval="1d", fidelity=1,
+    )
+    session = _FakeSession({"history": [{"t": 1, "p": 0.5}]})
+    out = await ph._fetch_history(session, "0xtoken")
+    assert out == [{"t": 1, "p": 0.5}]
+    assert session.calls[0]["params"]["interval"] == "1d"
+    assert session.calls[0]["params"]["fidelity"] == "1"
+    assert session.calls[0]["params"]["market"] == "0xtoken"
+
+
 @pytest.mark.asyncio
 async def test_scan_watch_returns_token_ticker_pairs():
     r = _FakeAsyncRedis()
