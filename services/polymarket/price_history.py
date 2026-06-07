@@ -28,7 +28,11 @@ class PolymarketPriceHistory:
         redis: Any,
         logger,
         interval_sec: int = 20,
-        clob_interval: str = "max",
+        # `1d` (not `max`): `interval=max` makes the CLOB ignore `fidelity` and
+        # return coarse ~10-min points over the token's whole ~24h life, so only
+        # ~1 point lands inside a 15m market window. A bounded interval honors
+        # `fidelity=1` → dense 1-min data covering every 5m/15m/1h/4h window.
+        clob_interval: str = "1d",
         fidelity: int = 1,
         ttl: int = 60,
         max_concurrency: int = 4,

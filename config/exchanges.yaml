@@ -479,5 +479,9 @@ polymarket:
       watch_scan_interval_sec: 5
       pricehistory_enabled: true
       pricehistory_interval_sec: 20
-      pricehistory_clob_interval: "max"
+      # "1d" not "max": interval=max makes the CLOB ignore fidelity and return
+      # coarse ~10-min points over the token's ~24h life (≈1 point inside a 15m
+      # window). A bounded interval honors fidelity=1 → dense 1-min data covering
+      # every 5m/15m/1h/4h window.
+      pricehistory_clob_interval: "1d"
       pricehistory_fidelity: 1

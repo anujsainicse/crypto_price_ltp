@@ -44,7 +44,10 @@ class PolymarketService(BaseService):
         self.WATCH_SCAN_INTERVAL_SEC = config.get('watch_scan_interval_sec', 5)
         self.PRICEHISTORY_ENABLED = config.get('pricehistory_enabled', True)
         self.PRICEHISTORY_INTERVAL_SEC = config.get('pricehistory_interval_sec', 20)
-        self.PRICEHISTORY_CLOB_INTERVAL = config.get('pricehistory_clob_interval', 'max')
+        # `1d` not `max`: `interval=max` makes the CLOB ignore `fidelity`,
+        # yielding ~10-min points over the token's ~24h life (≈1 point inside a
+        # 15m window). A bounded interval honors `fidelity=1` → dense 1-min data.
+        self.PRICEHISTORY_CLOB_INTERVAL = config.get('pricehistory_clob_interval', '1d')
         self.PRICEHISTORY_FIDELITY = config.get('pricehistory_fidelity', 1)
         self._redis: aioredis.Redis | None = None
         self._tasks: list[asyncio.Task] = []
