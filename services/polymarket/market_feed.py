@@ -218,6 +218,19 @@ class PolymarketMarketFeed:
                             "[PolymarketFeed] Token set changed, will reconnect to re-subscribe"
                         )
                         refresh_needed.set()
+                        # Close the socket so the consumer's `async for raw in ws`
+                        # unblocks IMMEDIATELY. refresh_needed alone is only observed
+                        # at the top of a loop iteration, i.e. when the NEXT frame
+                        # arrives — but a quiet/near-resolved/rolled-over market emits
+                        # no frames, so the consumer would block here until an
+                        # unrelated ~hourly ping-timeout tore the socket down, leaving
+                        # a freshly-selected market with no orderbook/trades. Closing
+                        # forces run_once to return now so run_forever reconnects and
+                        # resubscribes to the updated token set.
+                        try:
+                            await ws.close()
+                        except Exception:  # noqa: BLE001 — best-effort unblock
+                            pass
                         break
 
             refresh_task = asyncio.create_task(_refresh_loop())
